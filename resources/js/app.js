@@ -161,6 +161,343 @@ const initializeDashboardPlaceholder = (page) => {
     document.querySelector('[data-logout]')?.addEventListener('click', logout);
 };
 
+const adminStatusOrder = ['uploaded', 'analyzed', 'need_revision', 'revised', 'ready'];
+
+const createAdminStatusItem = (status, count) => {
+    const item = document.createElement('div');
+    item.append(
+        createTextElement('span', `status-badge status-${status}`, documentStatusLabels[status] || status),
+        createTextElement('strong', '', count ?? 0),
+    );
+
+    return item;
+};
+
+const createAdminDocumentRow = (documentData) => {
+    const row = document.createElement('tr');
+    const documentCell = document.createElement('td');
+    const ownerCell = document.createElement('td');
+    const statusCell = document.createElement('td');
+
+    documentCell.append(
+        createTextElement('strong', 'document-title', documentData.title || '-'),
+        createTextElement('span', 'document-topic', `V${documentData.latest_version?.version_number || '-'}`),
+    );
+    ownerCell.append(
+        createTextElement('strong', 'document-title', documentData.user?.name || '-'),
+        createTextElement('span', 'document-topic', documentData.user?.email || '-'),
+    );
+    statusCell.appendChild(createTextElement(
+        'span',
+        `status-badge status-${documentData.status}`,
+        documentStatusLabels[documentData.status] || documentData.status,
+    ));
+    row.append(
+        documentCell,
+        ownerCell,
+        createTextElement('td', '', documentData.document_type?.label || '-'),
+        statusCell,
+        createTextElement('td', 'score-cell', documentData.latest_score ?? '-'),
+    );
+
+    return row;
+};
+
+const createAdminAnalysisRow = (analysis) => {
+    const row = document.createElement('tr');
+    const documentCell = document.createElement('td');
+    const ownerCell = document.createElement('td');
+
+    documentCell.appendChild(createTextElement('strong', 'document-title', analysis.document?.title || '-'));
+    ownerCell.append(
+        createTextElement('strong', 'document-title', analysis.document?.user?.name || '-'),
+        createTextElement('span', 'document-topic', analysis.document?.user?.email || '-'),
+    );
+    row.append(
+        documentCell,
+        ownerCell,
+        createTextElement('td', '', `V${analysis.document_version?.version_number || '-'}`),
+        createTextElement('td', 'score-cell', analysis.total_score ?? '-'),
+        createTextElement('td', '', formatDate(analysis.created_at)),
+    );
+
+    return row;
+};
+
+const renderAdminTable = (bodyId, items, createRow, emptyMessage, columnCount) => {
+    const body = document.getElementById(bodyId);
+
+    if (!items.length) {
+        const row = document.createElement('tr');
+        const cell = createTextElement('td', 'comparison-no-data', emptyMessage);
+        cell.colSpan = columnCount;
+        row.appendChild(cell);
+        body.replaceChildren(row);
+        return;
+    }
+
+    body.replaceChildren(...items.map(createRow));
+};
+
+const renderAdminDashboard = (dashboard) => {
+    const summary = dashboard.summary || {};
+
+    document.getElementById('adminTotalUsers').textContent = summary.total_users ?? 0;
+    document.getElementById('adminActiveUsers').textContent = summary.active_users ?? 0;
+    document.getElementById('adminInactiveUsers').textContent = summary.inactive_users ?? 0;
+    document.getElementById('adminTotalDocuments').textContent = summary.total_documents ?? 0;
+    document.getElementById('adminTotalAnalysis').textContent = summary.total_analysis ?? 0;
+    document.getElementById('adminAverageScore').textContent = summary.average_score ?? 0;
+    document.getElementById('adminArticleCount').textContent = summary.by_type?.article ?? 0;
+    document.getElementById('adminProposalCount').textContent = summary.by_type?.proposal ?? 0;
+    document.getElementById('adminReportCount').textContent = summary.by_type?.report ?? 0;
+    document.getElementById('adminStatusBreakdown').replaceChildren(
+        ...adminStatusOrder.map((status) => createAdminStatusItem(status, summary.by_status?.[status])),
+    );
+
+    renderAdminTable(
+        'adminLatestDocuments',
+        dashboard.latest_documents || [],
+        createAdminDocumentRow,
+        'Belum ada dokumen.',
+        5,
+    );
+    renderAdminTable(
+        'adminLatestAnalyses',
+        dashboard.latest_analyses || [],
+        createAdminAnalysisRow,
+        'Belum ada analisis.',
+        5,
+    );
+};
+
+const loadAdminDashboard = async (token) => {
+    try {
+        const response = await fetch('/api/admin/dashboard', {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (response.status === 403) {
+            window.location.href = '/dashboard';
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Dashboard admin tidak dapat dimuat.');
+        }
+
+        renderAdminDashboard(data.data || {});
+        document.getElementById('adminDashboardLoading').classList.add('hidden');
+        document.getElementById('adminDashboardContent').classList.remove('hidden');
+    } catch (error) {
+        document.getElementById('adminDashboardLoading').classList.add('hidden');
+        showAlert(error.message || 'Dashboard admin tidak dapat dimuat.', 'adminDashboardAlert');
+    }
+};
+
+const initializeAdminDashboard = () => {
+    const session = requireUserSession(true);
+
+    if (!session) return;
+
+    if (session.user.role !== 'admin') {
+        window.location.href = '/dashboard';
+        return;
+    }
+
+    document.getElementById('adminIdentity').textContent = session.user.name || 'Admin';
+    document.querySelector('[data-logout]')?.addEventListener('click', logout);
+    loadAdminDashboard(session.token);
+};
+
+let adminUsersPage = 1;
+let adminUsersSearchTimer;
+
+const createAdminUserRow = (user, currentUserId, token) => {
+    const row = document.createElement('tr');
+    const userCell = document.createElement('td');
+    const statusCell = document.createElement('td');
+    const actionCell = document.createElement('td');
+    const actionButton = createTextElement(
+        'button',
+        user.is_active ? 'admin-user-action admin-user-deactivate' : 'admin-user-action admin-user-activate',
+        user.is_active ? 'Nonaktifkan' : 'Aktifkan',
+    );
+
+    userCell.append(
+        createTextElement('strong', 'document-title', user.name || '-'),
+        createTextElement('span', 'document-topic', user.email || '-'),
+    );
+    statusCell.appendChild(createTextElement(
+        'span',
+        `admin-user-status admin-user-status-${user.is_active ? 'active' : 'inactive'}`,
+        user.is_active ? 'Aktif' : 'Nonaktif',
+    ));
+    actionButton.type = 'button';
+    actionButton.disabled = `${user.id}` === `${currentUserId}` && user.is_active;
+    actionButton.title = actionButton.disabled ? 'Admin tidak dapat menonaktifkan akunnya sendiri.' : '';
+    actionButton.addEventListener('click', () => updateAdminUserStatus(user, !user.is_active, token));
+    actionCell.appendChild(actionButton);
+    row.append(
+        userCell,
+        createTextElement('td', 'uppercase-cell', user.role || '-'),
+        createTextElement('td', 'score-cell', user.documents_count ?? 0),
+        statusCell,
+        createTextElement('td', '', formatDate(user.created_at)),
+        actionCell,
+    );
+
+    return row;
+};
+
+const renderAdminUsers = (pagination, currentUserId, token) => {
+    const users = pagination.data || [];
+    const body = document.getElementById('adminUserTableBody');
+
+    document.getElementById('adminUserVisibleCount').textContent = users.length;
+    document.getElementById('adminUserTotalCount').textContent = pagination.total ?? 0;
+    document.getElementById('adminUserCurrentPage').textContent = pagination.current_page ?? 1;
+    document.getElementById('adminUserLastPage').textContent = pagination.last_page ?? 1;
+    document.getElementById('adminUsersPageLabel').textContent = `Halaman ${pagination.current_page ?? 1}`;
+    document.getElementById('adminUsersPreviousPage').disabled = !pagination.prev_page_url;
+    document.getElementById('adminUsersNextPage').disabled = !pagination.next_page_url;
+
+    if (users.length === 0) {
+        const row = document.createElement('tr');
+        const cell = createTextElement('td', 'comparison-no-data', 'Tidak ada user yang sesuai dengan filter.');
+        cell.colSpan = 6;
+        row.appendChild(cell);
+        body.replaceChildren(row);
+        return;
+    }
+
+    body.replaceChildren(...users.map((user) => createAdminUserRow(user, currentUserId, token)));
+};
+
+const loadAdminUsers = async (token, currentUserId, page = adminUsersPage) => {
+    const query = new URLSearchParams({
+        page,
+        per_page: 15,
+    });
+    const search = document.getElementById('adminUserSearch').value.trim();
+    const role = document.getElementById('adminUserRoleFilter').value;
+    const status = document.getElementById('adminUserStatusFilter').value;
+
+    if (search) query.set('search', search);
+    if (role) query.set('role', role);
+    if (status !== '') query.set('is_active', status);
+
+    hideAlert('adminUsersAlert');
+
+    try {
+        const response = await fetch(`/api/admin/users?${query}`, {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (response.status === 403) {
+            window.location.href = '/dashboard';
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(getErrorMessage(data, 'Data user tidak dapat dimuat.'));
+        }
+
+        adminUsersPage = data.data?.current_page || 1;
+        renderAdminUsers(data.data || {}, currentUserId, token);
+        document.getElementById('adminUsersLoading').classList.add('hidden');
+        document.getElementById('adminUsersContent').classList.remove('hidden');
+    } catch (error) {
+        document.getElementById('adminUsersLoading').classList.add('hidden');
+        showAlert(error.message || 'Data user tidak dapat dimuat.', 'adminUsersAlert');
+    }
+};
+
+const updateAdminUserStatus = async (user, isActive, token) => {
+    hideAlert('adminUsersAlert');
+
+    try {
+        const response = await fetch(`/api/admin/users/${user.id}/status`, {
+            method: 'PUT',
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ is_active: isActive }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showAlert(getErrorMessage(data, 'Status user gagal diperbarui.'), 'adminUsersAlert');
+            return;
+        }
+
+        await loadAdminUsers(token, storage.getUser()?.id, adminUsersPage);
+        showAlert(data.message || 'Status user berhasil diperbarui.', 'adminUsersAlert', 'success');
+    } catch {
+        showAlert('Status user tidak dapat diperbarui. Silakan coba kembali.', 'adminUsersAlert');
+    }
+};
+
+const initializeAdminUsers = () => {
+    const session = requireUserSession(true);
+
+    if (!session) return;
+
+    if (session.user.role !== 'admin') {
+        window.location.href = '/dashboard';
+        return;
+    }
+
+    const reloadFromFirstPage = () => {
+        adminUsersPage = 1;
+        loadAdminUsers(session.token, session.user.id, adminUsersPage);
+    };
+
+    document.getElementById('adminUsersIdentity').textContent = session.user.name || 'Admin';
+    document.querySelector('[data-logout]')?.addEventListener('click', logout);
+    document.getElementById('adminUserSearch')?.addEventListener('input', () => {
+        window.clearTimeout(adminUsersSearchTimer);
+        adminUsersSearchTimer = window.setTimeout(reloadFromFirstPage, 350);
+    });
+    document.getElementById('adminUserRoleFilter')?.addEventListener('change', reloadFromFirstPage);
+    document.getElementById('adminUserStatusFilter')?.addEventListener('change', reloadFromFirstPage);
+    document.getElementById('resetAdminUserFilters')?.addEventListener('click', () => {
+        document.getElementById('adminUserSearch').value = '';
+        document.getElementById('adminUserRoleFilter').value = '';
+        document.getElementById('adminUserStatusFilter').value = '';
+        reloadFromFirstPage();
+    });
+    document.getElementById('adminUsersPreviousPage')?.addEventListener('click', () => {
+        if (adminUsersPage > 1) loadAdminUsers(session.token, session.user.id, adminUsersPage - 1);
+    });
+    document.getElementById('adminUsersNextPage')?.addEventListener('click', () => {
+        loadAdminUsers(session.token, session.user.id, adminUsersPage + 1);
+    });
+    loadAdminUsers(session.token, session.user.id);
+};
+
 const populateDocumentTypes = async (token) => {
     const select = document.getElementById('documentTypeSelect');
 
@@ -783,6 +1120,691 @@ const initializeDocumentRevisionUpload = () => {
     });
 };
 
+const comparisonStatusLabels = {
+    improved: 'Meningkat',
+    declined: 'Menurun',
+    unchanged: 'Tetap',
+};
+
+const formatDifference = (difference) => {
+    const value = Number(difference) || 0;
+    return value > 0 ? `+${value}` : `${value}`;
+};
+
+const setComparing = (isComparing) => {
+    const button = document.getElementById('compareVersionsButton');
+
+    button.disabled = isComparing;
+    button.querySelector('.button-label').classList.toggle('hidden', isComparing);
+    button.querySelector('.button-loader').classList.toggle('hidden', !isComparing);
+};
+
+const createComparisonStatus = (status) => createTextElement(
+    'span',
+    `comparison-status comparison-status-${status}`,
+    comparisonStatusLabels[status] || 'Tetap',
+);
+
+const createComparisonRow = (aspect) => {
+    const row = document.createElement('tr');
+    const differenceCell = document.createElement('td');
+    const statusCell = document.createElement('td');
+
+    differenceCell.appendChild(createTextElement(
+        'strong',
+        `comparison-difference comparison-difference-${aspect.status}`,
+        formatDifference(aspect.difference),
+    ));
+    statusCell.appendChild(createComparisonStatus(aspect.status));
+    row.append(
+        createTextElement('td', 'document-title', aspect.aspect_name || '-'),
+        createTextElement('td', 'score-cell', aspect.from_score ?? '-'),
+        createTextElement('td', 'score-cell', aspect.to_score ?? '-'),
+        differenceCell,
+        statusCell,
+    );
+
+    return row;
+};
+
+const getSelectedVersionLabel = (selectId) => {
+    const select = document.getElementById(selectId);
+    return select.options[select.selectedIndex]?.textContent || '-';
+};
+
+const renderComparisonResult = (comparison) => {
+    document.getElementById('comparisonEmptyState').classList.add('hidden');
+    document.getElementById('comparisonResult').classList.remove('hidden');
+    document.getElementById('fromVersionLabel').textContent = getSelectedVersionLabel('fromVersion');
+    document.getElementById('toVersionLabel').textContent = getSelectedVersionLabel('toVersion');
+    document.getElementById('fromTotalScore').textContent = comparison.from_total_score ?? '-';
+    document.getElementById('toTotalScore').textContent = comparison.to_total_score ?? '-';
+    document.getElementById('totalDifference').textContent = formatDifference(comparison.total_difference);
+    document.getElementById('totalStatus').textContent = comparisonStatusLabels[comparison.total_status] || 'Tetap';
+
+    const differenceCard = document.getElementById('totalDifferenceCard');
+    differenceCard.className = `comparison-score-card comparison-score-${comparison.total_status}`;
+
+    const aspects = comparison.aspect_comparison || [];
+    const body = document.getElementById('comparisonTableBody');
+
+    if (aspects.length === 0) {
+        const row = document.createElement('tr');
+        const cell = createTextElement('td', 'comparison-no-data', 'Tidak ada skor aspek yang dapat dibandingkan.');
+        cell.colSpan = 5;
+        row.appendChild(cell);
+        body.replaceChildren(row);
+        return;
+    }
+
+    body.replaceChildren(...aspects.map(createComparisonRow));
+};
+
+const compareDocumentVersions = async (documentId, token) => {
+    const fromVersionId = document.getElementById('fromVersion').value;
+    const toVersionId = document.getElementById('toVersion').value;
+
+    hideAlert('comparisonAlert');
+
+    if (!fromVersionId || !toVersionId) {
+        showAlert('Pilih versi awal dan versi revisi terlebih dahulu.', 'comparisonAlert');
+        return;
+    }
+
+    if (fromVersionId === toVersionId) {
+        showAlert('Versi awal dan versi revisi tidak boleh sama.', 'comparisonAlert');
+        return;
+    }
+
+    setComparing(true);
+
+    try {
+        const query = new URLSearchParams({
+            from_version_id: fromVersionId,
+            to_version_id: toVersionId,
+        });
+        const response = await fetch(`/api/documents/${documentId}/comparison?${query}`, {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (!response.ok) {
+            showAlert(getErrorMessage(data, 'Perbandingan versi gagal.'), 'comparisonAlert');
+            return;
+        }
+
+        renderComparisonResult(data.data);
+    } catch {
+        showAlert('Perbandingan versi tidak dapat dimuat. Silakan coba kembali.', 'comparisonAlert');
+    } finally {
+        setComparing(false);
+    }
+};
+
+const createVersionOption = (version) => {
+    const option = document.createElement('option');
+    option.value = version.id;
+    option.textContent = `V${version.version_number} - ${version.file_original_name || 'Tanpa nama file'}`;
+
+    return option;
+};
+
+const renderComparisonDocument = (documentData) => {
+    const versions = [...(documentData.versions || [])].sort(
+        (first, second) => first.version_number - second.version_number,
+    );
+    const fromSelect = document.getElementById('fromVersion');
+    const toSelect = document.getElementById('toVersion');
+    const button = document.getElementById('compareVersionsButton');
+
+    document.getElementById('comparisonDocumentTitle').textContent = documentData.title || '-';
+    document.getElementById('comparisonVersionCount').textContent = `${versions.length} versi`;
+    fromSelect.replaceChildren(
+        createTextElement('option', '', 'Pilih versi awal'),
+        ...versions.map(createVersionOption),
+    );
+    toSelect.replaceChildren(
+        createTextElement('option', '', 'Pilih versi revisi'),
+        ...versions.map(createVersionOption),
+    );
+    fromSelect.options[0].value = '';
+    toSelect.options[0].value = '';
+
+    if (versions.length >= 2) {
+        fromSelect.value = `${versions[0].id}`;
+        toSelect.value = `${versions[versions.length - 1].id}`;
+        button.disabled = false;
+        return;
+    }
+
+    button.disabled = true;
+    showAlert(
+        'Dokumen memerlukan minimal dua versi sebelum dapat dibandingkan.',
+        'comparisonAlert',
+    );
+};
+
+const loadComparisonDocument = async (documentId, token) => {
+    try {
+        const response = await fetch(`/api/documents/${documentId}`, {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Dokumen tidak dapat dimuat.');
+        }
+
+        renderComparisonDocument(data.data);
+        document.getElementById('comparisonLoading').classList.add('hidden');
+        document.getElementById('comparisonContent').classList.remove('hidden');
+    } catch (error) {
+        document.getElementById('comparisonLoading').classList.add('hidden');
+        showAlert(error.message || 'Dokumen tidak dapat dimuat.', 'comparisonAlert');
+    }
+};
+
+const initializeDocumentComparison = () => {
+    const session = requireUserSession();
+
+    if (!session) return;
+
+    const documentId = document.querySelector('[data-document-id]')?.dataset.documentId;
+
+    document.querySelector('[data-logout]')?.addEventListener('click', logout);
+    document.getElementById('compareVersionsButton')?.addEventListener('click', () => {
+        compareDocumentVersions(documentId, session.token);
+    });
+    loadComparisonDocument(documentId, session.token);
+};
+
+let reviewerComments = [];
+let reviewerDocumentVersions = [];
+
+const reviewerPriorityLabels = {
+    minor: 'Minor',
+    major: 'Major',
+    critical: 'Critical',
+};
+
+const reviewerStatusLabels = {
+    pending: 'Pending',
+    in_progress: 'In progress',
+    done: 'Selesai',
+    rejected_with_reason: 'Ditolak dengan alasan',
+};
+
+const setButtonLoading = (button, isLoading) => {
+    button.disabled = isLoading;
+    button.querySelector('.button-label')?.classList.toggle('hidden', isLoading);
+    button.querySelector('.button-loader')?.classList.toggle('hidden', !isLoading);
+};
+
+const createReviewerBadge = (type, value, label) => createTextElement(
+    'span',
+    `reviewer-badge reviewer-${type}-${value}`,
+    label,
+);
+
+const createReviewerCommentCard = (comment) => {
+    const card = document.createElement('article');
+    const header = document.createElement('div');
+    const identity = document.createElement('div');
+    const badges = document.createElement('div');
+    const actions = document.createElement('div');
+    const responseButton = createTextElement('button', 'primary-button', comment.response ? 'Edit respons' : 'Buat respons');
+    const section = comment.related_section || 'Bagian tidak ditentukan';
+    const commentNumber = comment.comment_number ? `Komentar ${comment.comment_number}` : 'Tanpa nomor';
+
+    card.className = 'reviewer-comment-item';
+    header.className = 'reviewer-comment-header';
+    identity.append(
+        createTextElement('strong', '', comment.reviewer_label || 'Reviewer'),
+        createTextElement('span', '', `${commentNumber} | ${section}`),
+    );
+    badges.className = 'reviewer-comment-badges';
+    badges.append(
+        createReviewerBadge('priority', comment.priority, reviewerPriorityLabels[comment.priority] || comment.priority),
+        createReviewerBadge('status', comment.status, reviewerStatusLabels[comment.status] || comment.status),
+    );
+    header.append(identity, badges);
+    responseButton.type = 'button';
+    responseButton.dataset.commentId = comment.id;
+    responseButton.addEventListener('click', () => openAuthorResponseEditor(comment.id));
+    actions.className = 'reviewer-comment-actions';
+    actions.appendChild(responseButton);
+    card.append(
+        header,
+        createTextElement('p', 'reviewer-comment-text', comment.original_comment || '-'),
+        actions,
+    );
+
+    return card;
+};
+
+const renderReviewerComments = () => {
+    const list = document.getElementById('reviewerCommentList');
+    document.getElementById('reviewerCommentCount').textContent = `${reviewerComments.length} komentar`;
+
+    if (reviewerComments.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'inline-empty reviewer-list-empty';
+        empty.append(
+            createTextElement('strong', '', 'Belum ada komentar reviewer.'),
+            createTextElement('p', '', 'Paste catatan reviewer untuk diproses AI atau tambahkan komentar secara manual.'),
+        );
+        list.replaceChildren(empty);
+        return;
+    }
+
+    list.replaceChildren(...reviewerComments.map(createReviewerCommentCard));
+};
+
+const loadReviewerComments = async (documentId, token) => {
+    const response = await fetch(`/api/articles/${documentId}/reviewer-comments`, {
+        headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${token}`,
+        },
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+        throw new Error(data.message || 'Komentar reviewer tidak dapat dimuat.');
+    }
+
+    reviewerComments = data.data || [];
+    renderReviewerComments();
+};
+
+const createMatrixRow = (item) => {
+    const row = document.createElement('tr');
+    const version = item.revised_version_number ? `V${item.revised_version_number}` : null;
+    const location = [item.revision_location, version].filter(Boolean).join(' | ') || '-';
+    const statusCell = document.createElement('td');
+
+    statusCell.appendChild(createReviewerBadge(
+        'status',
+        item.status,
+        reviewerStatusLabels[item.status] || item.status,
+    ));
+    row.append(
+        createTextElement('td', '', item.reviewer || '-'),
+        createTextElement('td', '', item.original_comment || '-'),
+        createTextElement('td', '', item.author_response || '-'),
+        createTextElement('td', '', item.revision_made || '-'),
+        createTextElement('td', '', location),
+        statusCell,
+    );
+
+    return row;
+};
+
+const renderResponseMatrix = (items) => {
+    const body = document.getElementById('responseMatrixTableBody');
+
+    if (items.length === 0) {
+        const row = document.createElement('tr');
+        const cell = createTextElement('td', 'comparison-no-data', 'Response matrix belum tersedia.');
+        cell.colSpan = 6;
+        row.appendChild(cell);
+        body.replaceChildren(row);
+        return;
+    }
+
+    body.replaceChildren(...items.map(createMatrixRow));
+};
+
+const loadResponseMatrix = async (documentId, token) => {
+    const response = await fetch(`/api/articles/${documentId}/response-matrix`, {
+        headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${token}`,
+        },
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+        throw new Error(data.message || 'Response matrix tidak dapat dimuat.');
+    }
+
+    renderResponseMatrix(data.data?.response_matrix || []);
+};
+
+const refreshReviewerWorkspace = async (documentId, token) => {
+    await Promise.all([
+        loadReviewerComments(documentId, token),
+        loadResponseMatrix(documentId, token),
+    ]);
+};
+
+const parseReviewerComments = async (documentId, token) => {
+    const reviewerText = document.getElementById('reviewerText');
+    const button = document.getElementById('parseReviewerButton');
+
+    hideAlert('reviewerAlert');
+
+    if (!reviewerText.value.trim()) {
+        showAlert('Catatan reviewer wajib diisi sebelum diproses.', 'reviewerAlert');
+        return;
+    }
+
+    setButtonLoading(button, true);
+
+    try {
+        const response = await fetch(`/api/articles/${documentId}/reviewer-comments/parse`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                reviewer_text: reviewerText.value,
+                save_to_database: true,
+            }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showAlert(getErrorMessage(data, 'Komentar reviewer gagal diproses.'), 'reviewerAlert');
+            return;
+        }
+
+        reviewerText.value = '';
+        await refreshReviewerWorkspace(documentId, token);
+        showAlert('Komentar reviewer berhasil diproses dan disimpan.', 'reviewerAlert', 'success');
+    } catch {
+        showAlert('Komentar reviewer tidak dapat diproses. Silakan coba kembali.', 'reviewerAlert');
+    } finally {
+        setButtonLoading(button, false);
+    }
+};
+
+const submitManualReviewerComment = async (form, documentId, token) => {
+    hideAlert('reviewerAlert');
+
+    if (!form.reportValidity()) return;
+
+    setSubmitting(form, true);
+
+    try {
+        const values = Object.fromEntries(new FormData(form).entries());
+        const response = await fetch(`/api/articles/${documentId}/reviewer-comments`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                ...values,
+                comment_number: values.comment_number || null,
+                related_section: values.related_section || null,
+            }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showAlert(getErrorMessage(data, 'Komentar manual gagal disimpan.'), 'reviewerAlert');
+            return;
+        }
+
+        form.elements.original_comment.value = '';
+        form.elements.comment_number.value = '';
+        await refreshReviewerWorkspace(documentId, token);
+        showAlert('Komentar manual berhasil disimpan.', 'reviewerAlert', 'success');
+    } catch {
+        showAlert('Komentar manual tidak dapat disimpan. Silakan coba kembali.', 'reviewerAlert');
+    } finally {
+        setSubmitting(form, false);
+    }
+};
+
+const populateRevisedVersionOptions = () => {
+    const select = document.getElementById('revisedVersionId');
+    const emptyOption = createTextElement('option', '', 'Tidak ditentukan');
+    emptyOption.value = '';
+    select.replaceChildren(emptyOption, ...reviewerDocumentVersions.map(createVersionOption));
+};
+
+const openAuthorResponseEditor = (commentId) => {
+    const comment = reviewerComments.find((item) => `${item.id}` === `${commentId}`);
+
+    if (!comment) {
+        showAlert('Komentar reviewer tidak ditemukan.', 'reviewerAlert');
+        return;
+    }
+
+    const response = comment.response || {};
+    const editor = document.getElementById('responseEditorCard');
+
+    document.getElementById('selectedReviewerCommentId').value = comment.id;
+    document.getElementById('selectedReviewerComment').textContent = comment.original_comment || '-';
+    document.getElementById('revisionMade').value = response.revision_made || '';
+    document.getElementById('revisionLocation').value = response.revision_location || '';
+    document.getElementById('revisedVersionId').value = response.revised_version_id || '';
+    document.getElementById('authorResponse').value = response.author_response || '';
+    editor.classList.remove('hidden');
+    editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+const generateAuthorResponse = async (token) => {
+    const commentId = document.getElementById('selectedReviewerCommentId').value;
+    const revisionMade = document.getElementById('revisionMade').value.trim();
+    const revisionLocation = document.getElementById('revisionLocation').value.trim();
+    const button = document.getElementById('generateAuthorResponseButton');
+
+    hideAlert('reviewerAlert');
+
+    if (!commentId || !revisionMade) {
+        showAlert('Isi perubahan yang dilakukan sebelum membuat draft respons.', 'reviewerAlert');
+        return;
+    }
+
+    setButtonLoading(button, true);
+
+    try {
+        const response = await fetch(`/api/reviewer-comments/${commentId}/generate-response`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                revision_made: revisionMade,
+                revision_location: revisionLocation || null,
+                save_to_database: false,
+            }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showAlert(getErrorMessage(data, 'Draft respons gagal dibuat.'), 'reviewerAlert');
+            return;
+        }
+
+        document.getElementById('authorResponse').value = data.data?.generated_response?.author_response || '';
+        showAlert('Draft respons AI berhasil dibuat. Periksa kembali sebelum disimpan.', 'reviewerAlert', 'success');
+    } catch {
+        showAlert('Draft respons tidak dapat dibuat. Silakan coba kembali.', 'reviewerAlert');
+    } finally {
+        setButtonLoading(button, false);
+    }
+};
+
+const submitAuthorResponse = async (form, documentId, token) => {
+    hideAlert('reviewerAlert');
+
+    if (!form.reportValidity()) return;
+
+    const commentId = document.getElementById('selectedReviewerCommentId').value;
+    setSubmitting(form, true);
+
+    try {
+        const response = await fetch(`/api/reviewer-comments/${commentId}/responses`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                author_response: document.getElementById('authorResponse').value,
+                revision_made: document.getElementById('revisionMade').value || null,
+                revision_location: document.getElementById('revisionLocation').value || null,
+                revised_version_id: document.getElementById('revisedVersionId').value || null,
+            }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showAlert(getErrorMessage(data, 'Respons penulis gagal disimpan.'), 'reviewerAlert');
+            return;
+        }
+
+        await refreshReviewerWorkspace(documentId, token);
+        document.getElementById('responseEditorCard').classList.add('hidden');
+        showAlert('Respons penulis berhasil disimpan.', 'reviewerAlert', 'success');
+    } catch {
+        showAlert('Respons penulis tidak dapat disimpan. Silakan coba kembali.', 'reviewerAlert');
+    } finally {
+        setSubmitting(form, false);
+    }
+};
+
+const downloadResponseLetter = async (documentId, token) => {
+    const button = document.getElementById('downloadResponseLetterButton');
+    hideAlert('reviewerAlert');
+    setButtonLoading(button, true);
+
+    try {
+        const response = await fetch(`/api/articles/${documentId}/response-letter`, {
+            headers: {
+                Accept: 'application/pdf',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+
+        if (!response.ok) {
+            const data = await response.json();
+            showAlert(data.message || 'Response Letter gagal dibuat.', 'reviewerAlert');
+            return;
+        }
+
+        const disposition = response.headers.get('content-disposition') || '';
+        const fileName = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+            || `response_to_reviewers_document_${documentId}.pdf`;
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        showAlert('Response Letter berhasil diunduh.', 'reviewerAlert', 'success');
+    } catch {
+        showAlert('Response Letter tidak dapat diunduh. Silakan coba kembali.', 'reviewerAlert');
+    } finally {
+        setButtonLoading(button, false);
+    }
+};
+
+const loadReviewerWorkspace = async (documentId, token) => {
+    try {
+        const response = await fetch(`/api/documents/${documentId}`, {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Artikel tidak dapat dimuat.');
+        }
+
+        if (data.data?.document_type?.name !== 'article') {
+            throw new Error('Reviewer Mapping hanya tersedia untuk artikel ilmiah.');
+        }
+
+        reviewerDocumentVersions = [...(data.data.versions || [])].sort(
+            (first, second) => first.version_number - second.version_number,
+        );
+        document.getElementById('reviewerArticleTitle').textContent = data.data.title || '-';
+        populateRevisedVersionOptions();
+        await refreshReviewerWorkspace(documentId, token);
+        document.getElementById('downloadResponseLetterButton').disabled = false;
+        document.getElementById('reviewerLoading').classList.add('hidden');
+        document.getElementById('reviewerContent').classList.remove('hidden');
+    } catch (error) {
+        document.getElementById('reviewerLoading').classList.add('hidden');
+        showAlert(error.message || 'Reviewer workspace tidak dapat dimuat.', 'reviewerAlert');
+    }
+};
+
+const initializeReviewerMapping = () => {
+    const session = requireUserSession();
+
+    if (!session) return;
+
+    const documentId = document.querySelector('[data-document-id]')?.dataset.documentId;
+    const manualForm = document.getElementById('manualCommentForm');
+    const responseForm = document.getElementById('authorResponseForm');
+
+    document.querySelector('[data-logout]')?.addEventListener('click', logout);
+    document.getElementById('toggleManualCommentButton')?.addEventListener('click', () => {
+        document.getElementById('manualCommentCard').classList.toggle('hidden');
+    });
+    document.getElementById('parseReviewerButton')?.addEventListener('click', () => {
+        parseReviewerComments(documentId, session.token);
+    });
+    document.getElementById('generateAuthorResponseButton')?.addEventListener('click', () => {
+        generateAuthorResponse(session.token);
+    });
+    document.getElementById('closeResponseEditorButton')?.addEventListener('click', () => {
+        document.getElementById('responseEditorCard').classList.add('hidden');
+    });
+    document.getElementById('downloadResponseLetterButton')?.addEventListener('click', () => {
+        downloadResponseLetter(documentId, session.token);
+    });
+    manualForm?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitManualReviewerComment(manualForm, documentId, session.token);
+    });
+    responseForm?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitAuthorResponse(responseForm, documentId, session.token);
+    });
+    loadReviewerWorkspace(documentId, session.token);
+};
+
 const initializeUserDestination = () => {
     if (!requireUserSession()) return;
 
@@ -796,8 +1818,16 @@ document.addEventListener('DOMContentLoaded', () => {
         initializeAuthPage(page);
     }
 
-    if (page === 'user-dashboard' || page === 'admin-dashboard') {
+    if (page === 'user-dashboard') {
         initializeDashboardPlaceholder(page);
+    }
+
+    if (page === 'admin-dashboard') {
+        initializeAdminDashboard();
+    }
+
+    if (page === 'admin-users') {
+        initializeAdminUsers();
     }
 
     if (page === 'document-upload') {
@@ -814,6 +1844,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (page === 'document-revision-upload') {
         initializeDocumentRevisionUpload();
+    }
+
+    if (page === 'document-comparison') {
+        initializeDocumentComparison();
+    }
+
+    if (page === 'reviewer-mapping') {
+        initializeReviewerMapping();
     }
 
     if (page === 'document-action-placeholder') {

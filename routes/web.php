@@ -25,3 +25,4 @@ Route::get('/articles/{document}/reviewer-mapping', [DocumentPageController::cla
     ->whereNumber('document')
     ->name('articles.reviewer-mapping.page');
 Route::get('/admin/dashboard', [DashboardPageController::class, 'admin'])->name('admin.dashboard.page');
+Route::get('/admin/users', [DashboardPageController::class, 'adminUsers'])->name('admin.users.page');

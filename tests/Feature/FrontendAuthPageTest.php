@@ -39,7 +39,13 @@ class FrontendAuthPageTest extends TestCase
 
         $this->get('/admin/dashboard')
             ->assertOk()
-            ->assertSee('Selamat datang, Admin.')
+            ->assertSee('Dashboard Admin')
+            ->assertSee('Data User')
+            ->assertSee('Data Dokumen')
+            ->assertSee('Rubrik AI')
+            ->assertSee('id="adminTotalUsers"', false)
+            ->assertSee('id="adminLatestDocuments"', false)
+            ->assertSee('id="adminLatestAnalyses"', false)
             ->assertSee('data-page="admin-dashboard"', false);
     }
 
@@ -84,10 +90,35 @@ class FrontendAuthPageTest extends TestCase
 
         $this->get('/documents/42/comparison')
             ->assertOk()
-            ->assertSee('Bandingkan versi dokumen');
+            ->assertSee('Perbandingan Versi')
+            ->assertSee('id="fromVersion"', false)
+            ->assertSee('id="toVersion"', false)
+            ->assertSee('id="compareVersionsButton"', false)
+            ->assertSee('id="comparisonTableBody"', false)
+            ->assertSee('data-page="document-comparison"', false);
 
         $this->get('/articles/42/reviewer-mapping')
             ->assertOk()
-            ->assertSee('Reviewer Mapping');
+            ->assertSee('Reviewer Mapping')
+            ->assertSee('id="reviewerText"', false)
+            ->assertSee('id="parseReviewerButton"', false)
+            ->assertSee('id="manualCommentForm"', false)
+            ->assertSee('id="authorResponseForm"', false)
+            ->assertSee('id="responseMatrixTableBody"', false)
+            ->assertSee('id="downloadResponseLetterButton"', false)
+            ->assertSee('data-page="reviewer-mapping"', false);
+    }
+
+    public function test_admin_user_management_page_is_available(): void
+    {
+        $this->get('/admin/users')
+            ->assertOk()
+            ->assertSee('Data User')
+            ->assertSee('id="adminUserSearch"', false)
+            ->assertSee('id="adminUserRoleFilter"', false)
+            ->assertSee('id="adminUserStatusFilter"', false)
+            ->assertSee('id="adminUserTableBody"', false)
+            ->assertSee('id="adminUsersPreviousPage"', false)
+            ->assertSee('data-page="admin-users"', false);
     }
 }

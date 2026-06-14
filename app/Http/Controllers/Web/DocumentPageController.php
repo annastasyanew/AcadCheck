@@ -29,21 +29,11 @@ class DocumentPageController extends Controller
 
     public function comparison(int $document): View
     {
-        return view('user.documents.action-placeholder', [
-            'documentId' => $document,
-            'eyebrow' => 'Version comparison',
-            'heading' => 'Bandingkan versi dokumen',
-            'description' => 'Tampilan perbandingan versi lengkap akan dibangun pada tahap Comparison Frontend.',
-        ]);
+        return view('user.documents.comparison', ['documentId' => $document]);
     }
 
     public function reviewerMapping(int $document): View
     {
-        return view('user.documents.action-placeholder', [
-            'documentId' => $document,
-            'eyebrow' => 'Reviewer mapping',
-            'heading' => 'Reviewer Mapping',
-            'description' => 'Workspace reviewer mapping lengkap akan dibangun pada tahap frontend berikutnya.',
-        ]);
+        return view('user.articles.reviewer-mapping', ['documentId' => $document]);
     }
 }

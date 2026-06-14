@@ -16,4 +16,9 @@ class DashboardPageController extends Controller
     {
         return view('dashboard.admin');
     }
+
+    public function adminUsers(): View
+    {
+        return view('admin.users.index');
+    }
 }
