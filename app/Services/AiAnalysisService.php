@@ -192,13 +192,34 @@ PROMPT;
             $aspectScores->sum(fn (array $aspect): int => $aspect['score'] * $aspect['weight']) / $totalWeight,
         );
 
+        $mainIssues = $result['main_issues'];
+        $recommendations = $result['recommendations'];
+        $revisionPriorities = $result['revision_priorities'];
+
+        if (! $hasReferenceSection && $rubrics->contains(
+            fn ($rubric): bool => $this->isReferenceAspect($rubric->aspect_name),
+        )) {
+            $mainIssues = $this->prependUnique(
+                $mainIssues,
+                'Dokumen belum memiliki bagian daftar referensi atau daftar pustaka.',
+            );
+            $recommendations = $this->prependUnique(
+                $recommendations,
+                'Tambahkan daftar referensi yang memuat seluruh sumber yang dikutip dalam dokumen.',
+            );
+            $revisionPriorities = $this->prependUnique(
+                $revisionPriorities,
+                'Tambahkan dan lengkapi daftar referensi.',
+            );
+        }
+
         return [
             'total_score' => $totalScore,
             'status' => $this->scoreStatus($totalScore),
             'summary' => $result['summary'],
-            'main_issues' => $result['main_issues'],
-            'recommendations' => $result['recommendations'],
-            'revision_priorities' => $result['revision_priorities'],
+            'main_issues' => $mainIssues,
+            'recommendations' => $recommendations,
+            'revision_priorities' => $revisionPriorities,
             'aspect_scores' => $aspectScores
                 ->map(fn (array $aspect): array => collect($aspect)->except('weight')->all())
                 ->all(),
@@ -231,5 +252,14 @@ PROMPT;
             'references',
             'bibliography',
         ], true);
+    }
+
+    private function prependUnique(array $items, string $item): array
+    {
+        if (! in_array($item, $items, true)) {
+            array_unshift($items, $item);
+        }
+
+        return $items;
     }
 }

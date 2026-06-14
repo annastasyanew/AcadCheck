@@ -121,6 +121,14 @@ JSON);
             'Dokumen tidak memiliki bagian daftar referensi atau daftar pustaka.',
             $result['aspect_scores'][0]['finding'],
         );
+        $this->assertSame(
+            'Dokumen belum memiliki bagian daftar referensi atau daftar pustaka.',
+            $result['main_issues'][0],
+        );
+        $this->assertSame(
+            'Tambahkan dan lengkapi daftar referensi.',
+            $result['revision_priorities'][0],
+        );
     }
 
     public function test_it_normalizes_ai_scores_when_all_aspects_use_a_ten_point_scale(): void
