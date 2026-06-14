@@ -97,6 +97,8 @@ class DocumentVersionController extends Controller
                 return $version;
             });
         } catch (TextExtractionException $exception) {
+            report($exception);
+
             if ($storedPath !== null) {
                 Storage::disk('local')->delete($storedPath);
             }

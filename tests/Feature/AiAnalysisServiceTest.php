@@ -131,6 +131,156 @@ JSON);
         );
     }
 
+    public function test_it_preserves_reference_score_for_a_numbered_reference_list_without_heading(): void
+    {
+        $document = $this->createDocument(
+            rubrics: [
+                [
+                    'aspect_name' => 'Referensi',
+                    'weight' => 100,
+                    'description' => 'Referensi relevan dan cukup baru.',
+                    'is_active' => true,
+                ],
+            ],
+            extractedText: <<<'TEXT'
+Isi artikel dan pembahasan penelitian.
+
+[1] Penulis A. Judul artikel pertama. https://doi.org/10.1000/pertama
+[2] Penulis B. Judul artikel kedua. https://doi.org/10.1000/kedua
+[3] Penulis C. Judul artikel ketiga. https://doi.org/10.1000/ketiga
+TEXT,
+        );
+
+        $this->mock(AiProviderService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('getContent')
+                ->once()
+                ->withArgs(fn (array $messages): bool => str_contains(
+                    $messages[1]['content'],
+                    'Bagian daftar referensi/pustaka: ADA',
+                ))
+                ->andReturn(<<<'JSON'
+{
+  "summary": "Referensi tersedia.",
+  "main_issues": [],
+  "recommendations": [],
+  "revision_priorities": [],
+  "aspect_scores": [
+    {
+      "aspect_name": "Referensi",
+      "score": 80,
+      "finding": "Referensi cukup baik.",
+      "recommendation": "Perbarui beberapa sumber."
+    }
+  ]
+}
+JSON);
+        });
+
+        $result = app(AiAnalysisService::class)->analyze($document);
+
+        $this->assertSame(80, $result['total_score']);
+        $this->assertSame(80, $result['aspect_scores'][0]['score']);
+    }
+
+    public function test_it_does_not_allow_zero_reference_score_when_a_reference_list_exists(): void
+    {
+        $document = $this->createDocument(
+            rubrics: [
+                [
+                    'aspect_name' => 'Referensi',
+                    'weight' => 100,
+                    'description' => 'Referensi relevan dan cukup baru.',
+                    'is_active' => true,
+                ],
+            ],
+            extractedText: <<<'TEXT'
+REFERENSI
+[1] Penulis A. Judul artikel pertama.
+[2] Penulis B. Judul artikel kedua.
+[3] Penulis C. Judul artikel ketiga.
+TEXT,
+        );
+
+        $this->mock(AiProviderService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('getContent')
+                ->once()
+                ->andReturn(<<<'JSON'
+{
+  "summary": "Referensi perlu diperbaiki.",
+  "main_issues": [],
+  "recommendations": [],
+  "revision_priorities": [],
+  "aspect_scores": [
+    {
+      "aspect_name": "Referensi",
+      "score": 0,
+      "finding": "Referensi tidak ada.",
+      "recommendation": "Tambahkan referensi."
+    }
+  ]
+}
+JSON);
+        });
+
+        $result = app(AiAnalysisService::class)->analyze($document);
+
+        $this->assertSame(10, $result['total_score']);
+        $this->assertSame(10, $result['aspect_scores'][0]['score']);
+        $this->assertSame(
+            'Daftar referensi terdeteksi, tetapi kualitas atau kelengkapannya belum dapat dinilai dengan baik.',
+            $result['aspect_scores'][0]['finding'],
+        );
+    }
+
+    public function test_it_includes_the_end_of_a_long_document_in_the_ai_prompt(): void
+    {
+        config()->set('services.ai.document_character_limit', 12000);
+
+        $document = $this->createDocument(
+            extractedText: "PENDAHULUAN\n".str_repeat('isi awal dokumen ', 1500)
+                ."\nKESIMPULAN\nTemuan akhir penelitian.\nREFERENSI\n[1] Sumber penelitian.",
+        );
+
+        $this->mock(AiProviderService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('getContent')
+                ->once()
+                ->withArgs(function (array $messages): bool {
+                    $prompt = $messages[1]['content'];
+
+                    return str_contains($prompt, 'PENDAHULUAN')
+                        && str_contains($prompt, 'KESIMPULAN')
+                        && str_contains($prompt, 'REFERENSI')
+                        && str_contains($prompt, 'bagian dokumen dipotong karena batas konteks');
+                })
+                ->andReturn(<<<'JSON'
+{
+  "summary": "Analisis selesai.",
+  "main_issues": [],
+  "recommendations": [],
+  "revision_priorities": [],
+  "aspect_scores": [
+    {
+      "aspect_name": "Metode",
+      "score": 80,
+      "finding": "Metode cukup jelas.",
+      "recommendation": "Lengkapi prosedur."
+    },
+    {
+      "aspect_name": "Kesimpulan",
+      "score": 90,
+      "finding": "Kesimpulan tersedia.",
+      "recommendation": "Pertahankan."
+    }
+  ]
+}
+JSON);
+        });
+
+        $result = app(AiAnalysisService::class)->analyze($document);
+
+        $this->assertSame(83, $result['total_score']);
+    }
+
     public function test_it_normalizes_ai_scores_when_all_aspects_use_a_ten_point_scale(): void
     {
         $document = $this->createDocument();

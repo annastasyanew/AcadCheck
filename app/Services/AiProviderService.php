@@ -13,22 +13,24 @@ class AiProviderService
         $apiKey = config('services.ai.api_key');
         $baseUrl = rtrim((string) config('services.ai.base_url'), '/');
         $model = config('services.ai.model');
+        $maxTokens = (int) config('services.ai.max_tokens', 8192);
 
         if (blank($apiKey) || blank($baseUrl) || blank($model)) {
             throw new AiProviderException('Konfigurasi layanan AI belum lengkap.');
         }
 
         try {
-            $response = Http::acceptJson()
-                ->withToken($apiKey)
-                ->connectTimeout((int) config('services.ai.connect_timeout', 10))
-                ->timeout((int) config('services.ai.timeout', 60))
-                ->post("{$baseUrl}/chat/completions", [
-                    'model' => $model,
-                    'messages' => $messages,
-                    'temperature' => 0.2,
-                    'max_tokens' => (int) config('services.ai.max_tokens', 2048),
-                ]);
+            $response = $this->sendRequest($apiKey, $baseUrl, $model, $messages, $maxTokens);
+
+            if ($this->responseEndedBeforeFinalContent($response->json())) {
+                $response = $this->sendRequest(
+                    $apiKey,
+                    $baseUrl,
+                    $model,
+                    $messages,
+                    min(max($maxTokens * 2, 8192), 16384),
+                );
+            }
         } catch (ConnectionException $exception) {
             throw new AiProviderException('Layanan AI tidak dapat dihubungi.', previous: $exception);
         }
@@ -68,5 +70,31 @@ class AiProviderService
         }
 
         return $content;
+    }
+
+    private function sendRequest(
+        string $apiKey,
+        string $baseUrl,
+        string $model,
+        array $messages,
+        int $maxTokens,
+    ) {
+        return Http::acceptJson()
+            ->withToken($apiKey)
+            ->connectTimeout((int) config('services.ai.connect_timeout', 10))
+            ->timeout((int) config('services.ai.timeout', 120))
+            ->post("{$baseUrl}/chat/completions", [
+                'model' => $model,
+                'messages' => $messages,
+                'temperature' => 0.2,
+                'max_tokens' => $maxTokens,
+            ]);
+    }
+
+    private function responseEndedBeforeFinalContent(mixed $result): bool
+    {
+        return is_array($result)
+            && data_get($result, 'choices.0.finish_reason') === 'length'
+            && blank(data_get($result, 'choices.0.message.content'));
     }
 }

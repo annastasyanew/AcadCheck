@@ -27,7 +27,17 @@ class TextExtractionService
             );
         }
 
-        return $this->normalize($text);
+        $text = $this->normalize($text);
+
+        if (blank($text)) {
+            throw new TextExtractionException(match (strtolower($fileType)) {
+                'pdf' => 'PDF tidak memiliki teks yang dapat dibaca. Jika PDF berupa hasil scan, jalankan OCR terlebih dahulu.',
+                'docx' => 'DOCX tidak memiliki teks yang dapat dibaca.',
+                default => 'Dokumen tidak memiliki teks yang dapat dibaca.',
+            });
+        }
+
+        return $text;
     }
 
     private function extractPdf(string $path): string
@@ -72,6 +82,8 @@ class TextExtractionService
 
     private function normalize(string $text): string
     {
+        // Beberapa dokumen menyimpan surrogate Unicode yang tidak valid untuk MySQL utf8mb4.
+        $text = mb_scrub($text, 'UTF-8');
         $text = str_replace(["\r\n", "\r"], "\n", $text);
         $text = preg_replace('/[ \t]+/', ' ', $text) ?? $text;
         $text = preg_replace('/\n{3,}/', "\n\n", $text) ?? $text;

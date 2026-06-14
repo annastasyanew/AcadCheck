@@ -60,15 +60,16 @@ PROMPT;
 
     private function userPrompt(Document $document, Collection $rubrics): string
     {
-        $hasReferenceSection = $this->hasReferenceSection($document->latestVersion->extracted_text);
+        $extractedText = $document->latestVersion->extracted_text;
+        $hasReferenceSection = $this->hasReferenceSection($extractedText);
         $referenceSectionStatus = $hasReferenceSection ? 'ADA' : 'TIDAK ADA';
         $rubricText = $rubrics
             ->map(fn ($rubric): string => "- {$rubric->aspect_name} ({$rubric->weight}%): {$rubric->description}")
             ->implode("\n");
 
-        $documentText = Str::limit(
-            $document->latestVersion->extracted_text,
-            (int) config('services.ai.document_character_limit', 12000),
+        $documentText = $this->documentContext(
+            $extractedText,
+            (int) config('services.ai.document_character_limit', 60000),
         );
 
         return <<<PROMPT
@@ -81,6 +82,8 @@ Rubrik penilaian:
 Fakta struktur dokumen:
 - Bagian daftar referensi/pustaka: {$referenceSectionStatus}
 - Jika bagian daftar referensi/pustaka TIDAK ADA, aspek Referensi/Daftar Pustaka wajib diberi skor 0.
+- Jika bagian daftar referensi/pustaka ADA, nilai kualitasnya berdasarkan isi yang tersedia dan skor wajib lebih dari 0.
+- Jangan menyatakan suatu bagian tidak ada hanya karena tidak terlihat pada awal dokumen. Periksa seluruh konteks yang diberikan, termasuk bagian tengah dan akhir.
 
 Teks dokumen:
 <document>
@@ -175,6 +178,10 @@ PROMPT;
                 $score = 0;
                 $finding = 'Dokumen tidak memiliki bagian daftar referensi atau daftar pustaka.';
                 $recommendation = 'Tambahkan daftar referensi yang memuat seluruh sumber yang dikutip dalam dokumen.';
+            } elseif ($this->isReferenceAspect($rubric->aspect_name) && $score === 0) {
+                $score = 10;
+                $finding = 'Daftar referensi terdeteksi, tetapi kualitas atau kelengkapannya belum dapat dinilai dengan baik.';
+                $recommendation = 'Periksa kelengkapan, relevansi, kemutakhiran, dan konsistensi format seluruh entri referensi.';
             }
 
             return [
@@ -238,10 +245,41 @@ PROMPT;
 
     private function hasReferenceSection(string $documentText): bool
     {
-        return preg_match(
+        if (preg_match(
             '/^\s*(?:\d+(?:\.\d+)*[\.\)]?\s*)?(?:daftar\s+pustaka|referensi|references|bibliography)\s*:?\s*$/imu',
             $documentText,
-        ) === 1;
+        ) === 1) {
+            return true;
+        }
+
+        $lastPortion = mb_substr($documentText, (int) floor(mb_strlen($documentText) * 0.3));
+        $numberedEntries = preg_match_all('/^\s*(?:\[\d+\]|\d+[\.\)])\s+\S.+$/mu', $lastPortion);
+        $doiEntries = preg_match_all(
+            '/(?:https?:\/\/doi\.org\/|\bdoi\s*:\s*)10\.\d{4,9}\/[-._;()\/:a-z0-9]+/iu',
+            $lastPortion,
+        );
+
+        return $numberedEntries >= 3 || $doiEntries >= 3;
+    }
+
+    private function documentContext(string $documentText, int $limit): string
+    {
+        $length = mb_strlen($documentText);
+
+        if ($limit <= 0 || $length <= $limit) {
+            return $documentText;
+        }
+
+        $separator = "\n\n[... bagian dokumen dipotong karena batas konteks ...]\n\n";
+        $availableLength = max(3, $limit - (mb_strlen($separator) * 2));
+        $chunkLength = (int) floor($availableLength / 3);
+        $middleStart = max(0, (int) floor(($length - $chunkLength) / 2));
+
+        return mb_substr($documentText, 0, $chunkLength)
+            .$separator
+            .mb_substr($documentText, $middleStart, $chunkLength)
+            .$separator
+            .mb_substr($documentText, -$chunkLength);
     }
 
     private function isReferenceAspect(string $aspectName): bool

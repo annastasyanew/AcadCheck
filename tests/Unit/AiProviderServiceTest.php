@@ -71,4 +71,35 @@ class AiProviderServiceTest extends TestCase
             ['role' => 'user', 'content' => 'Analyze'],
         ]);
     }
+
+    public function test_it_retries_with_more_tokens_when_reasoning_uses_the_entire_limit(): void
+    {
+        config([
+            'services.ai.api_key' => 'test-key',
+            'services.ai.base_url' => 'https://api.provider.test/v1',
+            'services.ai.model' => 'reasoning-model',
+            'services.ai.max_tokens' => 2048,
+        ]);
+        Http::fakeSequence()
+            ->push([
+                'choices' => [[
+                    'finish_reason' => 'length',
+                    'message' => ['content' => null, 'reasoning_content' => 'reasoning'],
+                ]],
+            ])
+            ->push([
+                'choices' => [[
+                    'finish_reason' => 'stop',
+                    'message' => ['content' => '{"summary":"ok"}'],
+                ]],
+            ]);
+
+        $content = app(AiProviderService::class)->getContent([
+            ['role' => 'user', 'content' => 'Analyze'],
+        ]);
+
+        $this->assertSame('{"summary":"ok"}', $content);
+        Http::assertSentCount(2);
+        Http::assertSent(fn (Request $request): bool => $request['max_tokens'] === 8192);
+    }
 }
