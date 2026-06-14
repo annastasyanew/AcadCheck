@@ -12,14 +12,14 @@ class AuthorResponseGeneratorService
 {
     public const TONES = ['polite', 'firm', 'clarifying'];
 
-    public function __construct(private GroqService $groqService) {}
+    public function __construct(private AiProviderService $aiProviderService) {}
 
     public function generate(
         ReviewerComment $reviewerComment,
         string $revisionMade,
         ?string $revisionLocation = null,
     ): array {
-        $content = $this->groqService->getContent([
+        $content = $this->aiProviderService->getContent([
             [
                 'role' => 'system',
                 'content' => $this->systemPrompt(),
@@ -51,11 +51,11 @@ PROMPT;
     ): string {
         $commentText = Str::limit(
             $comment->original_comment,
-            (int) config('services.groq.author_response_comment_character_limit', 4000),
+            (int) config('services.ai.author_response_comment_character_limit', 4000),
         );
         $revisionMade = Str::limit(
             $revisionMade,
-            (int) config('services.groq.author_response_revision_character_limit', 4000),
+            (int) config('services.ai.author_response_revision_character_limit', 4000),
         );
         $location = $revisionLocation ?: 'Lokasi revisi belum disebutkan';
 

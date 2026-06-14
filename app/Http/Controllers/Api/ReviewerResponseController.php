@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\AiProviderException;
 use App\Exceptions\AuthorResponseGeneratorException;
-use App\Exceptions\GroqException;
 use App\Http\Controllers\Controller;
 use App\Models\Document;
 use App\Models\ReviewerComment;
@@ -97,7 +97,7 @@ class ReviewerResponseController extends Controller
                     return $response;
                 });
             }
-        } catch (AuthorResponseGeneratorException|GroqException $exception) {
+        } catch (AuthorResponseGeneratorException|AiProviderException $exception) {
             report($exception);
 
             return response()->json([

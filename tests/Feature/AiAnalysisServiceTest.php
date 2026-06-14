@@ -7,7 +7,7 @@ use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\User;
 use App\Services\AiAnalysisService;
-use App\Services\GroqService;
+use App\Services\AiProviderService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery\MockInterface;
 use Tests\TestCase;
@@ -19,7 +19,7 @@ class AiAnalysisServiceTest extends TestCase
     public function test_it_parses_ai_json_and_calculates_weighted_total_score(): void
     {
         $document = $this->createDocument();
-        $this->mock(GroqService::class, function (MockInterface $mock): void {
+        $this->mock(AiProviderService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('getContent')
                 ->once()
                 ->withArgs(function (array $messages): bool {
@@ -63,7 +63,7 @@ JSON);
     public function test_it_rejects_invalid_ai_json(): void
     {
         $document = $this->createDocument();
-        $this->mock(GroqService::class, function (MockInterface $mock): void {
+        $this->mock(AiProviderService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('getContent')->once()->andReturn('not-json');
         });
 
@@ -87,7 +87,7 @@ JSON);
             extractedText: 'Artikel ini menggunakan referensi ilmiah, tetapi tidak memiliki bagian daftar pustaka.',
         );
 
-        $this->mock(GroqService::class, function (MockInterface $mock): void {
+        $this->mock(AiProviderService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('getContent')
                 ->once()
                 ->withArgs(fn (array $messages): bool => str_contains(
@@ -134,7 +134,7 @@ JSON);
     public function test_it_normalizes_ai_scores_when_all_aspects_use_a_ten_point_scale(): void
     {
         $document = $this->createDocument();
-        $this->mock(GroqService::class, function (MockInterface $mock): void {
+        $this->mock(AiProviderService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('getContent')->once()->andReturn(<<<'JSON'
 {
   "summary": "Analisis selesai.",

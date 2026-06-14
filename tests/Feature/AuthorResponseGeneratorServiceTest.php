@@ -7,8 +7,8 @@ use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\ReviewerComment;
 use App\Models\User;
+use App\Services\AiProviderService;
 use App\Services\AuthorResponseGeneratorService;
-use App\Services\GroqService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery\MockInterface;
 use Tests\TestCase;
@@ -20,7 +20,7 @@ class AuthorResponseGeneratorServiceTest extends TestCase
     public function test_it_generates_and_validates_bilingual_author_response(): void
     {
         $comment = $this->createComment();
-        $this->mock(GroqService::class, function (MockInterface $mock): void {
+        $this->mock(AiProviderService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('getContent')
                 ->once()
                 ->withArgs(fn (array $messages): bool => str_contains(
@@ -54,7 +54,7 @@ JSON);
     public function test_it_rejects_invalid_generated_response_structure(): void
     {
         $comment = $this->createComment();
-        $this->mock(GroqService::class, function (MockInterface $mock): void {
+        $this->mock(AiProviderService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('getContent')->once()->andReturn(<<<'JSON'
 {"author_response":"Response.","tone":"aggressive"}
 JSON);

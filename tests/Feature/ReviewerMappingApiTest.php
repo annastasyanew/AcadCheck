@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Exceptions\GroqException;
+use App\Exceptions\AiProviderException;
 use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\DocumentVersion;
@@ -263,7 +263,7 @@ class ReviewerMappingApiTest extends TestCase
         $this->mock(ReviewerCommentParserService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('parse')
                 ->once()
-                ->andThrow(new GroqException('Sensitive upstream response.'));
+                ->andThrow(new AiProviderException('Sensitive upstream response.'));
         });
 
         $this->postJson("/api/articles/{$article->id}/reviewer-comments/parse", [
@@ -376,7 +376,7 @@ class ReviewerMappingApiTest extends TestCase
         $this->mock(AuthorResponseGeneratorService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('generate')
                 ->once()
-                ->andThrow(new GroqException('Sensitive upstream response.'));
+                ->andThrow(new AiProviderException('Sensitive upstream response.'));
         });
 
         $this->postJson("/api/reviewer-comments/{$comment->id}/generate-response", [

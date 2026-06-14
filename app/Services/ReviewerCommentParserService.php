@@ -24,11 +24,11 @@ class ReviewerCommentParserService
         'Lainnya',
     ];
 
-    public function __construct(private GroqService $groqService) {}
+    public function __construct(private AiProviderService $aiProviderService) {}
 
     public function parse(Document $document, string $reviewerText): array
     {
-        $content = $this->groqService->getContent([
+        $content = $this->aiProviderService->getContent([
             [
                 'role' => 'system',
                 'content' => $this->systemPrompt(),
@@ -58,7 +58,7 @@ PROMPT;
     {
         $reviewerText = Str::limit(
             $reviewerText,
-            (int) config('services.groq.reviewer_comment_character_limit', 8000),
+            (int) config('services.ai.reviewer_comment_character_limit', 8000),
         );
 
         return <<<PROMPT

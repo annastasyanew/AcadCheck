@@ -10,7 +10,7 @@ use Illuminate\Support\Str;
 
 class AiAnalysisService
 {
-    public function __construct(private GroqService $groqService) {}
+    public function __construct(private AiProviderService $aiProviderService) {}
 
     public function analyze(Document $document): array
     {
@@ -29,7 +29,7 @@ class AiAnalysisService
             throw new AiAnalysisException('Rubrik aktif untuk jenis dokumen ini belum tersedia.');
         }
 
-        $content = $this->groqService->getContent([
+        $content = $this->aiProviderService->getContent([
             [
                 'role' => 'system',
                 'content' => $this->systemPrompt(),
@@ -68,7 +68,7 @@ PROMPT;
 
         $documentText = Str::limit(
             $document->latestVersion->extracted_text,
-            (int) config('services.groq.document_character_limit', 12000),
+            (int) config('services.ai.document_character_limit', 12000),
         );
 
         return <<<PROMPT

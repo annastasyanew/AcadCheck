@@ -35,17 +35,18 @@ return [
         ],
     ],
 
-    'groq' => [
-        'api_key' => env('GROQ_API_KEY'),
-        'base_url' => env('GROQ_BASE_URL', 'https://api.groq.com/openai/v1'),
-        'model' => env('GROQ_MODEL', 'llama-3.1-8b-instant'),
-        'connect_timeout' => env('GROQ_CONNECT_TIMEOUT', 10),
-        'timeout' => env('GROQ_TIMEOUT', 60),
-        'max_tokens' => env('GROQ_MAX_TOKENS', 2048),
-        'document_character_limit' => env('GROQ_DOCUMENT_CHARACTER_LIMIT', 12000),
-        'reviewer_comment_character_limit' => env('GROQ_REVIEWER_COMMENT_CHARACTER_LIMIT', 8000),
-        'author_response_comment_character_limit' => env('GROQ_AUTHOR_RESPONSE_COMMENT_CHARACTER_LIMIT', 4000),
-        'author_response_revision_character_limit' => env('GROQ_AUTHOR_RESPONSE_REVISION_CHARACTER_LIMIT', 4000),
+    'ai' => [
+        'provider' => env('AI_PROVIDER', env('GROQ_API_KEY') ? 'groq' : 'opencode'),
+        'api_key' => env('AI_API_KEY', env('GROQ_API_KEY')),
+        'base_url' => env('AI_BASE_URL', env('GROQ_BASE_URL', 'https://opencode.ai/zen/v1')),
+        'model' => env('AI_MODEL', env('GROQ_MODEL')),
+        'connect_timeout' => env('AI_CONNECT_TIMEOUT', env('GROQ_CONNECT_TIMEOUT', 10)),
+        'timeout' => env('AI_TIMEOUT', env('GROQ_TIMEOUT', 60)),
+        'max_tokens' => env('AI_MAX_TOKENS', env('GROQ_MAX_TOKENS', 2048)),
+        'document_character_limit' => env('AI_DOCUMENT_CHARACTER_LIMIT', env('GROQ_DOCUMENT_CHARACTER_LIMIT', 12000)),
+        'reviewer_comment_character_limit' => env('AI_REVIEWER_COMMENT_CHARACTER_LIMIT', env('GROQ_REVIEWER_COMMENT_CHARACTER_LIMIT', 8000)),
+        'author_response_comment_character_limit' => env('AI_AUTHOR_RESPONSE_COMMENT_CHARACTER_LIMIT', env('GROQ_AUTHOR_RESPONSE_COMMENT_CHARACTER_LIMIT', 4000)),
+        'author_response_revision_character_limit' => env('AI_AUTHOR_RESPONSE_REVISION_CHARACTER_LIMIT', env('GROQ_AUTHOR_RESPONSE_REVISION_CHARACTER_LIMIT', 4000)),
     ],
 
 ];

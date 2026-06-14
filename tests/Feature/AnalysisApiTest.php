@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Exceptions\GroqException;
+use App\Exceptions\AiProviderException;
 use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\Rubric;
@@ -85,7 +85,7 @@ class AnalysisApiTest extends TestCase
         $this->mock(AiAnalysisService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('analyze')
                 ->once()
-                ->andThrow(new GroqException('Secret upstream response.'));
+                ->andThrow(new AiProviderException('Secret upstream response.'));
         });
 
         $this->postJson("/api/documents/{$document->id}/analyze")

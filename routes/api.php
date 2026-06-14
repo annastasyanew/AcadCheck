@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\DocumentVersionController;
 use App\Http\Controllers\Api\ResponseLetterController;
 use App\Http\Controllers\Api\ReviewerCommentController;
 use App\Http\Controllers\Api\ReviewerResponseController;
+use App\Services\AiProviderService;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/register', [AuthController::class, 'register']);
@@ -21,6 +22,20 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::get('/user/dashboard', [DashboardController::class, 'userDashboard']);
+    Route::get('/test-ai', function (AiProviderService $aiProviderService) {
+        abort_unless(app()->isLocal(), 404);
+
+        return response()->json([
+            'message' => $aiProviderService->getContent([
+                [
+                    'role' => 'user',
+                    'content' => 'Jawab singkat: koneksi AI aktif?',
+                ],
+            ]),
+            'provider' => config('services.ai.provider'),
+            'model' => config('services.ai.model'),
+        ]);
+    });
 
     Route::get('/document-types', [DocumentTypeController::class, 'index']);
     Route::get('/documents', [DocumentController::class, 'index']);

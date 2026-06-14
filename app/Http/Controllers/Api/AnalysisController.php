@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Exceptions\AiAnalysisException;
-use App\Exceptions\GroqException;
+use App\Exceptions\AiProviderException;
 use App\Http\Controllers\Controller;
 use App\Models\AnalysisResult;
 use App\Models\Document;
@@ -72,7 +72,7 @@ class AnalysisController extends Controller
 
                 return $analysis;
             });
-        } catch (AiAnalysisException|GroqException $exception) {
+        } catch (AiAnalysisException|AiProviderException $exception) {
             report($exception);
 
             return response()->json([

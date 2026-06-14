@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Exceptions\GroqException;
+use App\Exceptions\AiProviderException;
 use App\Exceptions\ReviewerCommentParserException;
 use App\Http\Controllers\Controller;
 use App\Models\Document;
@@ -100,7 +100,7 @@ class ReviewerCommentController extends Controller
                     fn () => $document->reviewerComments()->createMany($result['comments'])->all(),
                 );
             }
-        } catch (ReviewerCommentParserException|GroqException $exception) {
+        } catch (ReviewerCommentParserException|AiProviderException $exception) {
             report($exception);
 
             return response()->json([
