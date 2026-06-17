@@ -6,6 +6,7 @@ use App\Models\AnalysisResult;
 use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\ReviewerComment;
+use App\Models\Rubric;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -93,13 +94,95 @@ class AdminManagementApiTest extends TestCase
             ->assertJsonPath('data.data.0.reviewer_comments_count', 1);
     }
 
+    public function test_authenticated_user_can_list_rubrics_by_document_type(): void
+    {
+        $user = User::factory()->create();
+        $articleType = DocumentType::firstOrCreate(
+            ['name' => 'article'],
+            ['label' => 'Artikel Ilmiah', 'is_active' => true],
+        );
+        $proposalType = DocumentType::firstOrCreate(
+            ['name' => 'proposal'],
+            ['label' => 'Proposal', 'is_active' => true],
+        );
+        Rubric::create([
+            'document_type_id' => $articleType->id,
+            'aspect_name' => 'Abstrak',
+            'weight' => 20,
+            'description' => 'Abstrak lengkap.',
+            'is_active' => true,
+        ]);
+        Rubric::create([
+            'document_type_id' => $proposalType->id,
+            'aspect_name' => 'Tujuan',
+            'weight' => 15,
+            'description' => 'Tujuan jelas.',
+            'is_active' => true,
+        ]);
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/rubrics?document_type=article')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.aspect_name', 'Abstrak')
+            ->assertJsonPath('data.0.document_type.name', 'article');
+    }
+
+    public function test_admin_can_update_rubric(): void
+    {
+        $admin = User::factory()->create(['role' => User::ROLE_ADMIN]);
+        $type = DocumentType::firstOrCreate(
+            ['name' => 'article'],
+            ['label' => 'Artikel Ilmiah', 'is_active' => true],
+        );
+        $rubric = Rubric::create([
+            'document_type_id' => $type->id,
+            'aspect_name' => 'Metode',
+            'weight' => 20,
+            'description' => 'Metode awal.',
+            'is_active' => true,
+        ]);
+        Sanctum::actingAs($admin);
+
+        $this->putJson("/api/admin/rubrics/{$rubric->id}", [
+            'aspect_name' => 'Metode Penelitian',
+            'weight' => 25,
+            'description' => 'Metode diperjelas.',
+            'is_active' => false,
+        ])
+            ->assertOk()
+            ->assertJsonPath('message', 'Rubrik berhasil diperbarui.')
+            ->assertJsonPath('data.aspect_name', 'Metode Penelitian')
+            ->assertJsonPath('data.weight', 25)
+            ->assertJsonPath('data.is_active', false);
+
+        $this->assertDatabaseHas('rubrics', [
+            'id' => $rubric->id,
+            'aspect_name' => 'Metode Penelitian',
+            'weight' => 25,
+            'is_active' => false,
+        ]);
+    }
+
     public function test_regular_user_cannot_access_admin_management_endpoints(): void
     {
         $user = User::factory()->create();
+        $type = DocumentType::firstOrCreate(
+            ['name' => 'article'],
+            ['label' => 'Artikel Ilmiah', 'is_active' => true],
+        );
+        $rubric = Rubric::create([
+            'document_type_id' => $type->id,
+            'aspect_name' => 'Judul',
+            'weight' => 10,
+            'description' => 'Judul jelas.',
+            'is_active' => true,
+        ]);
         Sanctum::actingAs($user);
 
         $this->getJson('/api/admin/users')->assertForbidden();
         $this->getJson('/api/admin/documents')->assertForbidden();
+        $this->putJson("/api/admin/rubrics/{$rubric->id}", ['weight' => 10])->assertForbidden();
         $this->putJson("/api/admin/users/{$user->id}/status", ['is_active' => false])->assertForbidden();
     }
 

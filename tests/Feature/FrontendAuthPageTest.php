@@ -16,7 +16,8 @@ class FrontendAuthPageTest extends TestCase
     {
         $this->get('/login')
             ->assertOk()
-            ->assertSee('Masuk ke workspace')
+            ->assertSee('Masuk Akun')
+            ->assertSee('Academic Document Assistant')
             ->assertSee('id="loginForm"', false)
             ->assertSee('data-page="login"', false);
     }
@@ -25,7 +26,8 @@ class FrontendAuthPageTest extends TestCase
     {
         $this->get('/register')
             ->assertOk()
-            ->assertSee('Buat workspace Anda')
+            ->assertSee('Daftar Akun')
+            ->assertSee('Academic Document Assistant')
             ->assertSee('id="registerForm"', false)
             ->assertSee('data-page="register"', false);
     }
@@ -34,7 +36,9 @@ class FrontendAuthPageTest extends TestCase
     {
         $this->get('/dashboard')
             ->assertOk()
-            ->assertSee('Login berhasil.')
+            ->assertSee('Dashboard')
+            ->assertSee('id="totalDocuments"', false)
+            ->assertSee('id="latestActivities"', false)
             ->assertSee('data-page="user-dashboard"', false);
 
         $this->get('/admin/dashboard')
@@ -120,5 +124,29 @@ class FrontendAuthPageTest extends TestCase
             ->assertSee('id="adminUserTableBody"', false)
             ->assertSee('id="adminUsersPreviousPage"', false)
             ->assertSee('data-page="admin-users"', false);
+    }
+
+    public function test_admin_document_management_page_is_available(): void
+    {
+        $this->get('/admin/documents')
+            ->assertOk()
+            ->assertSee('Data Dokumen')
+            ->assertSee('id="adminDocumentSearch"', false)
+            ->assertSee('id="adminDocumentTypeFilter"', false)
+            ->assertSee('id="adminDocumentStatusFilter"', false)
+            ->assertSee('id="adminDocumentTableBody"', false)
+            ->assertSee('id="adminDocumentsPreviousPage"', false)
+            ->assertSee('data-page="admin-documents"', false);
+    }
+
+    public function test_admin_rubric_management_page_is_available(): void
+    {
+        $this->get('/admin/rubrics')
+            ->assertOk()
+            ->assertSee('Rubrik AI')
+            ->assertSee('id="adminRubricTypeFilter"', false)
+            ->assertSee('id="adminRubricStatusFilter"', false)
+            ->assertSee('id="adminRubricTableBody"', false)
+            ->assertSee('data-page="admin-rubrics"', false);
     }
 }

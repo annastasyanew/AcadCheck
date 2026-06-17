@@ -101,18 +101,18 @@
                         <p>Lihat pengguna dan kelola status akun.</p>
                         <small>Tersedia</small>
                     </a>
-                    <article>
+                    <a href="/admin/documents">
                         <span>02</span>
                         <strong>Data Dokumen</strong>
                         <p>Pantau seluruh dokumen beserta pemiliknya.</p>
-                        <small>Tahap berikutnya</small>
-                    </article>
-                    <article>
+                        <small>Tersedia</small>
+                    </a>
+                    <a href="/admin/rubrics">
                         <span>03</span>
                         <strong>Rubrik AI</strong>
                         <p>Kelola bobot dan deskripsi aspek penilaian.</p>
-                        <small>Endpoint belum tersedia</small>
-                    </article>
+                        <small>Tersedia</small>
+                    </a>
                 </div>
             </section>
 

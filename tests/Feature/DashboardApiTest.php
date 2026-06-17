@@ -43,6 +43,8 @@ class DashboardApiTest extends TestCase
             ->assertJsonPath('data.summary.by_status.need_revision', 1)
             ->assertJsonPath('data.reviewer_comments.pending', 1)
             ->assertJsonCount(3, 'data.latest_documents')
+            ->assertJsonCount(3, 'data.latest_activities')
+            ->assertJsonCount(1, 'data.revision_priorities')
             ->assertJsonCount(1, 'data.latest_analyses');
 
         $this->assertNotSame($article->id, $proposal->id);

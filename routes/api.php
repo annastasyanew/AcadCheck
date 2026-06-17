@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\DocumentVersionController;
 use App\Http\Controllers\Api\ResponseLetterController;
 use App\Http\Controllers\Api\ReviewerCommentController;
 use App\Http\Controllers\Api\ReviewerResponseController;
+use App\Http\Controllers\Api\RubricController;
 use App\Services\AiProviderService;
 use Illuminate\Support\Facades\Route;
 
@@ -38,6 +39,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     });
 
     Route::get('/document-types', [DocumentTypeController::class, 'index']);
+    Route::get('/rubrics', [RubricController::class, 'index']);
     Route::get('/documents', [DocumentController::class, 'index']);
     Route::post('/documents', [DocumentController::class, 'store']);
     Route::get('/documents/{document}', [DocumentController::class, 'show']);
@@ -63,5 +65,6 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/users', [AdminUserController::class, 'index']);
         Route::put('/users/{user}/status', [AdminUserController::class, 'updateStatus']);
         Route::get('/documents', [AdminDocumentController::class, 'index']);
+        Route::put('/rubrics/{rubric}', [RubricController::class, 'update']);
     });
 });

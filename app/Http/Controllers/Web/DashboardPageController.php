@@ -21,4 +21,14 @@ class DashboardPageController extends Controller
     {
         return view('admin.users.index');
     }
+
+    public function adminDocuments(): View
+    {
+        return view('admin.documents.index');
+    }
+
+    public function adminRubrics(): View
+    {
+        return view('admin.rubrics.index');
+    }
 }

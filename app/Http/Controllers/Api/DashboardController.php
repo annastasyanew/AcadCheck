@@ -17,6 +17,20 @@ class DashboardController extends Controller
     {
         $documents = Document::query()->where('user_id', $request->user()->id);
 
+        $latestDocuments = (clone $documents)
+            ->with(['documentType', 'latestVersion'])
+            ->latest('updated_at')
+            ->limit(5)
+            ->get();
+
+        $revisionPriorities = (clone $documents)
+            ->with(['documentType', 'latestVersion'])
+            ->where('status', Document::STATUS_NEED_REVISION)
+            ->orderByRaw('latest_score IS NULL, latest_score ASC')
+            ->latest('updated_at')
+            ->limit(3)
+            ->get();
+
         return response()->json([
             'data' => [
                 'summary' => $this->documentSummary($documents),
@@ -30,11 +44,9 @@ class DashboardController extends Controller
                         fn (Builder $query) => $query->where('user_id', $request->user()->id),
                     )->where('status', ReviewerComment::STATUS_PENDING)->count(),
                 ],
-                'latest_documents' => (clone $documents)
-                    ->with(['documentType', 'latestVersion'])
-                    ->latest('updated_at')
-                    ->limit(5)
-                    ->get(),
+                'latest_documents' => $latestDocuments,
+                'latest_activities' => $latestDocuments,
+                'revision_priorities' => $revisionPriorities,
                 'latest_analyses' => AnalysisResult::query()
                     ->whereHas(
                         'document',

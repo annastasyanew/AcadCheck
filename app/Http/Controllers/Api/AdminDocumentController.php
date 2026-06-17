@@ -37,7 +37,12 @@ class AdminDocumentController extends Controller
                 $query->where(function ($query) use ($search): void {
                     $query->where('title', 'like', "%{$search}%")
                         ->orWhere('topic', 'like', "%{$search}%")
-                        ->orWhereHas('user', fn ($query) => $query->where('name', 'like', "%{$search}%"));
+                        ->orWhereHas(
+                            'user',
+                            fn ($query) => $query
+                                ->where('name', 'like', "%{$search}%")
+                                ->orWhere('email', 'like', "%{$search}%"),
+                        );
                 });
             })
             ->when($validated['user_id'] ?? null, fn ($query, int $userId) => $query->where('user_id', $userId))

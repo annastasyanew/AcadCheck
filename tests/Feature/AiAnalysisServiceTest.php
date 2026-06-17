@@ -318,11 +318,148 @@ JSON);
         $this->assertSame('Baik', $result['aspect_scores'][1]['status']);
     }
 
-    private function createDocument(?array $rubrics = null, string $extractedText = 'Isi dokumen akademik.'): Document
+    public function test_it_uses_updated_active_database_rubrics_and_ignores_inactive_aspects(): void
     {
+        $document = $this->createDocument(rubrics: [
+            [
+                'aspect_name' => 'Metode',
+                'weight' => 50,
+                'description' => 'Deskripsi lama dari seed.',
+                'is_active' => true,
+            ],
+            [
+                'aspect_name' => 'Referensi',
+                'weight' => 50,
+                'description' => 'Referensi relevan dan cukup baru.',
+                'is_active' => false,
+            ],
+        ]);
+
+        $document->documentType->rubrics()
+            ->where('aspect_name', 'Metode')
+            ->first()
+            ->update([
+                'weight' => 100,
+                'description' => 'Deskripsi terbaru dari admin.',
+            ]);
+
+        $this->mock(AiProviderService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('getContent')
+                ->once()
+                ->withArgs(function (array $messages): bool {
+                    $rubricSection = str($messages[1]['content'])
+                        ->between("Rubrik penilaian:\n", "\n\nFakta struktur dokumen:")
+                        ->toString();
+
+                    return str_contains($rubricSection, 'Metode (100%): Deskripsi terbaru dari admin.')
+                        && ! str_contains($rubricSection, 'Referensi');
+                })
+                ->andReturn(<<<'JSON'
+{
+  "summary": "Analisis mengikuti rubrik aktif.",
+  "main_issues": [],
+  "recommendations": [],
+  "revision_priorities": [],
+  "aspect_scores": [
+    {
+      "aspect_name": "Metode",
+      "score": 77,
+      "finding": "Metode cukup.",
+      "recommendation": "Lengkapi detail metode."
+    }
+  ]
+}
+JSON);
+        });
+
+        $result = app(AiAnalysisService::class)->analyze($document->fresh());
+
+        $this->assertSame(77, $result['total_score']);
+        $this->assertCount(1, $result['aspect_scores']);
+        $this->assertSame('Metode', $result['aspect_scores'][0]['aspect_name']);
+        $this->assertNotContains('Referensi', array_column($result['aspect_scores'], 'aspect_name'));
+    }
+
+    public function test_it_uses_the_database_rubric_for_article_proposal_and_report_documents(): void
+    {
+        $documents = [
+            $this->createDocument(
+                rubrics: [[
+                    'aspect_name' => 'Struktur Artikel',
+                    'weight' => 100,
+                    'description' => 'Struktur artikel dari database.',
+                    'is_active' => true,
+                ]],
+                typeName: 'article',
+            ),
+            $this->createDocument(
+                rubrics: [[
+                    'aspect_name' => 'Tujuan Proposal',
+                    'weight' => 100,
+                    'description' => 'Tujuan proposal dari database.',
+                    'is_active' => true,
+                ]],
+                typeName: 'proposal',
+            ),
+            $this->createDocument(
+                rubrics: [[
+                    'aspect_name' => 'Evaluasi Laporan',
+                    'weight' => 100,
+                    'description' => 'Evaluasi laporan dari database.',
+                    'is_active' => true,
+                ]],
+                typeName: 'report',
+            ),
+        ];
+
+        $expectations = [
+            ['article', 'Struktur Artikel', 'Struktur artikel dari database.'],
+            ['proposal', 'Tujuan Proposal', 'Tujuan proposal dari database.'],
+            ['report', 'Evaluasi Laporan', 'Evaluasi laporan dari database.'],
+        ];
+
+        $this->mock(AiProviderService::class, function (MockInterface $mock) use ($expectations): void {
+            foreach ($expectations as [$typeName, $aspectName, $description]) {
+                $mock->shouldReceive('getContent')
+                    ->once()
+                    ->ordered()
+                    ->withArgs(fn (array $messages): bool => str_contains($messages[1]['content'], "Jenis dokumen: {$typeName}")
+                        && str_contains($messages[1]['content'], "{$aspectName} (100%): {$description}"))
+                    ->andReturn(<<<JSON
+{
+  "summary": "Analisis {$typeName}.",
+  "main_issues": [],
+  "recommendations": [],
+  "revision_priorities": [],
+  "aspect_scores": [
+    {
+      "aspect_name": "{$aspectName}",
+      "score": 80,
+      "finding": "Aspek sesuai.",
+      "recommendation": "Pertahankan."
+    }
+  ]
+}
+JSON);
+            }
+        });
+
+        foreach ($documents as $index => $document) {
+            $result = app(AiAnalysisService::class)->analyze($document);
+
+            $this->assertSame($expectations[$index][1], $result['aspect_scores'][0]['aspect_name']);
+            $this->assertSame(80, $result['total_score']);
+        }
+    }
+
+    private function createDocument(
+        ?array $rubrics = null,
+        string $extractedText = 'Isi dokumen akademik.',
+        ?string $typeName = null,
+    ): Document {
         $user = User::factory()->create();
         $type = DocumentType::create([
-            'name' => fake()->unique()->slug(2),
+            'name' => $typeName ?? fake()->unique()->slug(2),
             'label' => 'Artikel',
             'is_active' => true,
         ]);

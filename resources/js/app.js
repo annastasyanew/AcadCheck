@@ -161,6 +161,158 @@ const initializeDashboardPlaceholder = (page) => {
     document.querySelector('[data-logout]')?.addEventListener('click', logout);
 };
 
+const createUserDashboardActivityRow = (documentData) => {
+    const row = document.createElement('tr');
+    const documentCell = document.createElement('td');
+    const statusCell = document.createElement('td');
+    const actionCell = document.createElement('td');
+    const detailLink = createTextElement('a', 'detail-link', 'Detail');
+
+    documentCell.append(
+        createTextElement('strong', 'document-title', documentData.title || '-'),
+        createTextElement('span', 'document-topic', documentData.topic || 'Tanpa topik'),
+    );
+    statusCell.appendChild(createTextElement(
+        'span',
+        `status-badge status-${documentData.status}`,
+        documentStatusLabels[documentData.status] || documentData.status || '-',
+    ));
+    detailLink.href = `/documents/${documentData.id}`;
+    actionCell.appendChild(detailLink);
+    row.append(
+        documentCell,
+        createTextElement('td', '', documentData.document_type?.label || '-'),
+        statusCell,
+        createTextElement('td', 'score-cell', documentData.latest_score ?? '-'),
+        actionCell,
+    );
+
+    return row;
+};
+
+const renderUserDashboardActivities = (documents) => {
+    const body = document.getElementById('latestActivities');
+
+    if (!documents.length) {
+        const row = document.createElement('tr');
+        const cell = createTextElement('td', 'comparison-no-data', 'Belum ada aktivitas dokumen.');
+        cell.colSpan = 5;
+        row.appendChild(cell);
+        body.replaceChildren(row);
+        return;
+    }
+
+    body.replaceChildren(...documents.map(createUserDashboardActivityRow));
+};
+
+const createUserDashboardPriorityItem = (documentData) => {
+    const item = document.createElement('article');
+    const content = document.createElement('div');
+    const meta = document.createElement('p');
+    const link = createTextElement('a', 'detail-link', 'Lanjutkan revisi');
+
+    item.className = 'dashboard-priority-item';
+    content.appendChild(createTextElement('strong', '', documentData.title || 'Dokumen tanpa judul'));
+    meta.textContent = [
+        documentData.document_type?.label || 'Dokumen',
+        documentStatusLabels[documentData.status] || documentData.status || '-',
+        `Skor ${documentData.latest_score ?? '-'}`,
+    ].join(' | ');
+    content.appendChild(meta);
+    link.href = `/documents/${documentData.id}`;
+    item.append(content, link);
+
+    return item;
+};
+
+const renderUserDashboardPriorities = (documents) => {
+    const container = document.getElementById('revisionPriorities');
+
+    if (!container) return;
+
+    if (!documents.length) {
+        const emptyState = document.createElement('div');
+        emptyState.className = 'dashboard-priority-empty';
+        emptyState.append(
+            createTextElement('strong', '', 'Belum ada dokumen prioritas revisi.'),
+            createTextElement('p', '', 'Dokumen yang membutuhkan revisi akan muncul di sini.'),
+        );
+        container.replaceChildren(emptyState);
+        return;
+    }
+
+    container.replaceChildren(...documents.map(createUserDashboardPriorityItem));
+};
+
+const renderUserDashboard = (dashboard) => {
+    const summary = dashboard.summary || {};
+    const needRevision = summary.by_status?.need_revision ?? 0;
+    const readyDocuments = summary.by_status?.ready ?? 0;
+    const averageScore = summary.average_score ?? 0;
+    const statusNarrative = document.getElementById('dashboardStatusNarrative');
+
+    document.getElementById('totalDocuments').textContent = summary.total_documents ?? 0;
+    document.getElementById('averageScore').textContent = averageScore;
+    document.getElementById('needRevision').textContent = needRevision;
+    document.getElementById('readyDocuments').textContent = readyDocuments;
+    document.getElementById('totalArticle').textContent = summary.by_type?.article ?? 0;
+    document.getElementById('totalProposal').textContent = summary.by_type?.proposal ?? 0;
+    document.getElementById('totalReport').textContent = summary.by_type?.report ?? 0;
+    if (statusNarrative) {
+        statusNarrative.textContent = needRevision > 0
+            ? `Masih ada ${needRevision} dokumen yang membutuhkan revisi. Mulai dari dokumen dengan skor terendah agar proses perbaikan lebih terarah.`
+            : 'Tidak ada dokumen yang sedang menunggu revisi. Anda bisa membuka Document Library atau mengunggah dokumen baru.';
+    }
+    renderUserDashboardPriorities(dashboard.revision_priorities || []);
+    renderUserDashboardActivities(dashboard.latest_activities || dashboard.latest_documents || []);
+};
+
+const loadUserDashboard = async (token) => {
+    hideAlert('dashboardAlert');
+
+    try {
+        const response = await fetch('/api/user/dashboard', {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(getErrorMessage(data, 'Dashboard tidak dapat dimuat.'));
+        }
+
+        renderUserDashboard(data.data || {});
+        document.getElementById('dashboardLoading').classList.add('hidden');
+        document.getElementById('dashboardContent').classList.remove('hidden');
+    } catch (error) {
+        document.getElementById('dashboardLoading').classList.add('hidden');
+        showAlert(error.message || 'Dashboard tidak dapat dimuat.', 'dashboardAlert');
+    }
+};
+
+const initializeUserDashboard = () => {
+    const session = requireUserSession();
+
+    if (!session) return;
+
+    const userBox = document.getElementById('currentUser');
+
+    if (userBox) {
+        userBox.textContent = `${session.user.name} | ${session.user.email}`;
+    }
+
+    document.querySelector('[data-logout]')?.addEventListener('click', logout);
+    loadUserDashboard(session.token);
+};
+
 const adminStatusOrder = ['uploaded', 'analyzed', 'need_revision', 'revised', 'ready'];
 
 const createAdminStatusItem = (status, count) => {
@@ -498,6 +650,383 @@ const initializeAdminUsers = () => {
     loadAdminUsers(session.token, session.user.id);
 };
 
+let adminDocumentsPage = 1;
+let adminDocumentsSearchTimer;
+
+const createAdminDocumentManagementRow = (documentData) => {
+    const row = document.createElement('tr');
+    const documentCell = document.createElement('td');
+    const ownerCell = document.createElement('td');
+    const statusCell = document.createElement('td');
+    const uploadDate = documentData.latest_version?.uploaded_at || documentData.created_at;
+
+    documentCell.append(
+        createTextElement('strong', 'document-title', documentData.title || '-'),
+        createTextElement('span', 'document-topic', documentData.topic || 'Tanpa topik'),
+    );
+    ownerCell.append(
+        createTextElement('strong', 'document-title', documentData.user?.name || '-'),
+        createTextElement('span', 'document-topic', documentData.user?.email || '-'),
+    );
+    statusCell.appendChild(createTextElement(
+        'span',
+        `status-badge status-${documentData.status}`,
+        documentStatusLabels[documentData.status] || documentData.status || '-',
+    ));
+    row.append(
+        documentCell,
+        ownerCell,
+        createTextElement('td', '', documentData.document_type?.label || '-'),
+        statusCell,
+        createTextElement('td', 'score-cell', documentData.latest_score ?? '-'),
+        createTextElement('td', '', `V${documentData.versions_count || 1}`),
+        createTextElement('td', '', formatDate(uploadDate)),
+    );
+
+    return row;
+};
+
+const renderAdminDocuments = (pagination) => {
+    const documents = pagination.data || [];
+    const body = document.getElementById('adminDocumentTableBody');
+
+    document.getElementById('adminDocumentVisibleCount').textContent = documents.length;
+    document.getElementById('adminDocumentTotalCount').textContent = pagination.total ?? 0;
+    document.getElementById('adminDocumentCurrentPage').textContent = pagination.current_page ?? 1;
+    document.getElementById('adminDocumentLastPage').textContent = pagination.last_page ?? 1;
+    document.getElementById('adminDocumentsPageLabel').textContent = `Halaman ${pagination.current_page ?? 1}`;
+    document.getElementById('adminDocumentsPreviousPage').disabled = !pagination.prev_page_url;
+    document.getElementById('adminDocumentsNextPage').disabled = !pagination.next_page_url;
+
+    if (documents.length === 0) {
+        const row = document.createElement('tr');
+        const cell = createTextElement('td', 'comparison-no-data', 'Tidak ada dokumen yang sesuai dengan filter.');
+        cell.colSpan = 7;
+        row.appendChild(cell);
+        body.replaceChildren(row);
+        return;
+    }
+
+    body.replaceChildren(...documents.map(createAdminDocumentManagementRow));
+};
+
+const loadAdminDocuments = async (token, page = adminDocumentsPage) => {
+    const query = new URLSearchParams({
+        page,
+        per_page: 15,
+    });
+    const search = document.getElementById('adminDocumentSearch').value.trim();
+    const type = document.getElementById('adminDocumentTypeFilter').value;
+    const status = document.getElementById('adminDocumentStatusFilter').value;
+
+    if (search) query.set('search', search);
+    if (type) query.set('document_type', type);
+    if (status) query.set('status', status);
+
+    hideAlert('adminDocumentsAlert');
+
+    try {
+        const response = await fetch(`/api/admin/documents?${query}`, {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (response.status === 403) {
+            window.location.href = '/dashboard';
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(getErrorMessage(data, 'Data dokumen tidak dapat dimuat.'));
+        }
+
+        adminDocumentsPage = data.data?.current_page || 1;
+        renderAdminDocuments(data.data || {});
+        document.getElementById('adminDocumentsLoading').classList.add('hidden');
+        document.getElementById('adminDocumentsContent').classList.remove('hidden');
+    } catch (error) {
+        document.getElementById('adminDocumentsLoading').classList.add('hidden');
+        showAlert(error.message || 'Data dokumen tidak dapat dimuat.', 'adminDocumentsAlert');
+    }
+};
+
+const initializeAdminDocuments = () => {
+    const session = requireUserSession(true);
+
+    if (!session) return;
+
+    if (session.user.role !== 'admin') {
+        window.location.href = '/dashboard';
+        return;
+    }
+
+    const reloadFromFirstPage = () => {
+        adminDocumentsPage = 1;
+        loadAdminDocuments(session.token, adminDocumentsPage);
+    };
+
+    document.getElementById('adminDocumentsIdentity').textContent = session.user.name || 'Admin';
+    document.querySelector('[data-logout]')?.addEventListener('click', logout);
+    document.getElementById('adminDocumentSearch')?.addEventListener('input', () => {
+        window.clearTimeout(adminDocumentsSearchTimer);
+        adminDocumentsSearchTimer = window.setTimeout(reloadFromFirstPage, 350);
+    });
+    document.getElementById('adminDocumentTypeFilter')?.addEventListener('change', reloadFromFirstPage);
+    document.getElementById('adminDocumentStatusFilter')?.addEventListener('change', reloadFromFirstPage);
+    document.getElementById('resetAdminDocumentFilters')?.addEventListener('click', () => {
+        document.getElementById('adminDocumentSearch').value = '';
+        document.getElementById('adminDocumentTypeFilter').value = '';
+        document.getElementById('adminDocumentStatusFilter').value = '';
+        reloadFromFirstPage();
+    });
+    document.getElementById('adminDocumentsPreviousPage')?.addEventListener('click', () => {
+        if (adminDocumentsPage > 1) loadAdminDocuments(session.token, adminDocumentsPage - 1);
+    });
+    document.getElementById('adminDocumentsNextPage')?.addEventListener('click', () => {
+        loadAdminDocuments(session.token, adminDocumentsPage + 1);
+    });
+    loadAdminDocuments(session.token);
+};
+
+let adminRubrics = [];
+
+const rubricTypeLabels = {
+    article: 'Artikel ilmiah',
+    proposal: 'Proposal',
+    report: 'Laporan',
+};
+
+const createRubricInput = (type, className, value, attributes = {}) => {
+    const input = document.createElement(type === 'textarea' ? 'textarea' : 'input');
+    input.className = className;
+
+    if (type === 'textarea') {
+        input.rows = attributes.rows || 3;
+        input.value = value || '';
+    } else if (type === 'checkbox') {
+        input.type = 'checkbox';
+        input.checked = Boolean(value);
+    } else {
+        input.type = type;
+        input.value = value ?? '';
+    }
+
+    Object.entries(attributes).forEach(([key, attributeValue]) => {
+        if (key !== 'rows') input.setAttribute(key, attributeValue);
+    });
+
+    return input;
+};
+
+const createAdminRubricRow = (rubric, token) => {
+    const row = document.createElement('tr');
+    const aspectCell = document.createElement('td');
+    const weightCell = document.createElement('td');
+    const descriptionCell = document.createElement('td');
+    const statusCell = document.createElement('td');
+    const actionCell = document.createElement('td');
+    const aspectInput = createRubricInput('text', 'admin-rubric-aspect-input', rubric.aspect_name || '', {
+        maxlength: 255,
+    });
+    const weightInput = createRubricInput('number', 'admin-rubric-weight-input', rubric.weight ?? 0, {
+        min: 0,
+        max: 100,
+        step: 1,
+    });
+    const descriptionInput = createRubricInput('textarea', 'admin-rubric-description-input', rubric.description || '');
+    const activeInput = createRubricInput('checkbox', 'admin-rubric-active-input', rubric.is_active);
+    const saveButton = createTextElement('button', 'admin-user-action admin-user-activate', 'Simpan');
+
+    aspectInput.name = 'aspect_name';
+    weightInput.name = 'weight';
+    descriptionInput.name = 'description';
+    activeInput.name = 'is_active';
+    saveButton.type = 'button';
+    saveButton.addEventListener('click', () => updateAdminRubric(
+        rubric.id,
+        {
+            aspect_name: aspectInput.value.trim(),
+            weight: Number.parseInt(weightInput.value, 10),
+            description: descriptionInput.value.trim() || null,
+            is_active: activeInput.checked,
+        },
+        token,
+        saveButton,
+    ));
+
+    aspectCell.appendChild(aspectInput);
+    weightCell.appendChild(weightInput);
+    descriptionCell.appendChild(descriptionInput);
+    statusCell.append(
+        activeInput,
+        createTextElement('span', 'admin-rubric-status-label', rubric.is_active ? 'Aktif' : 'Nonaktif'),
+    );
+    actionCell.appendChild(saveButton);
+    row.append(
+        createTextElement('td', '', rubricTypeLabels[rubric.document_type?.name] || rubric.document_type?.label || '-'),
+        aspectCell,
+        weightCell,
+        descriptionCell,
+        statusCell,
+        actionCell,
+    );
+
+    return row;
+};
+
+const getFilteredAdminRubrics = () => {
+    const type = document.getElementById('adminRubricTypeFilter').value;
+    const status = document.getElementById('adminRubricStatusFilter').value;
+
+    return adminRubrics.filter((rubric) => {
+        const matchesType = !type || rubric.document_type?.name === type;
+        const matchesStatus = !status
+            || (status === 'active' && rubric.is_active)
+            || (status === 'inactive' && !rubric.is_active);
+
+        return matchesType && matchesStatus;
+    });
+};
+
+const renderAdminRubrics = (token) => {
+    const filtered = getFilteredAdminRubrics();
+    const body = document.getElementById('adminRubricTableBody');
+    const visibleWeight = filtered.reduce((total, rubric) => total + Number(rubric.weight || 0), 0);
+
+    document.getElementById('adminRubricVisibleCount').textContent = filtered.length;
+    document.getElementById('adminRubricTotalCount').textContent = adminRubrics.length;
+    document.getElementById('adminRubricVisibleWeight').textContent = visibleWeight;
+
+    if (filtered.length === 0) {
+        const row = document.createElement('tr');
+        const cell = createTextElement('td', 'comparison-no-data', 'Tidak ada rubrik yang sesuai dengan filter.');
+        cell.colSpan = 6;
+        row.appendChild(cell);
+        body.replaceChildren(row);
+        return;
+    }
+
+    body.replaceChildren(...filtered.map((rubric) => createAdminRubricRow(rubric, token)));
+};
+
+const loadAdminRubrics = async (token) => {
+    hideAlert('adminRubricsAlert');
+
+    try {
+        const response = await fetch('/api/rubrics', {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(getErrorMessage(data, 'Rubrik AI tidak dapat dimuat.'));
+        }
+
+        adminRubrics = data.data || [];
+        renderAdminRubrics(token);
+        document.getElementById('adminRubricsLoading').classList.add('hidden');
+        document.getElementById('adminRubricsContent').classList.remove('hidden');
+    } catch (error) {
+        document.getElementById('adminRubricsLoading').classList.add('hidden');
+        showAlert(error.message || 'Rubrik AI tidak dapat dimuat.', 'adminRubricsAlert');
+    }
+};
+
+const updateAdminRubric = async (rubricId, payload, token, button) => {
+    hideAlert('adminRubricsAlert');
+
+    if (!payload.aspect_name) {
+        showAlert('Nama aspek rubrik wajib diisi.', 'adminRubricsAlert');
+        return;
+    }
+
+    if (Number.isNaN(payload.weight)) {
+        showAlert('Bobot rubrik harus berupa angka.', 'adminRubricsAlert');
+        return;
+    }
+
+    button.disabled = true;
+    button.textContent = 'Menyimpan';
+
+    try {
+        const response = await fetch(`/api/admin/rubrics/${rubricId}`, {
+            method: 'PUT',
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (response.status === 403) {
+            window.location.href = '/dashboard';
+            return;
+        }
+
+        if (!response.ok) {
+            showAlert(getErrorMessage(data, 'Rubrik gagal diperbarui.'), 'adminRubricsAlert');
+            return;
+        }
+
+        adminRubrics = adminRubrics.map((rubric) => (`${rubric.id}` === `${rubricId}` ? data.data : rubric));
+        renderAdminRubrics(token);
+        showAlert(data.message || 'Rubrik berhasil diperbarui.', 'adminRubricsAlert', 'success');
+    } catch {
+        showAlert('Rubrik tidak dapat diperbarui. Silakan coba kembali.', 'adminRubricsAlert');
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Simpan';
+    }
+};
+
+const initializeAdminRubrics = () => {
+    const session = requireUserSession(true);
+
+    if (!session) return;
+
+    if (session.user.role !== 'admin') {
+        window.location.href = '/dashboard';
+        return;
+    }
+
+    document.getElementById('adminRubricsIdentity').textContent = session.user.name || 'Admin';
+    document.querySelector('[data-logout]')?.addEventListener('click', logout);
+    document.getElementById('adminRubricTypeFilter')?.addEventListener('change', () => renderAdminRubrics(session.token));
+    document.getElementById('adminRubricStatusFilter')?.addEventListener('change', () => renderAdminRubrics(session.token));
+    document.getElementById('resetAdminRubricFilters')?.addEventListener('click', () => {
+        document.getElementById('adminRubricTypeFilter').value = '';
+        document.getElementById('adminRubricStatusFilter').value = '';
+        renderAdminRubrics(session.token);
+    });
+    loadAdminRubrics(session.token);
+};
+
 const populateDocumentTypes = async (token) => {
     const select = document.getElementById('documentTypeSelect');
 
@@ -640,6 +1169,7 @@ const documentStatusLabels = {
     need_revision: 'Need revision',
     revised: 'Revised',
     ready: 'Ready',
+    archived: 'Archived',
 };
 
 const formatDate = (value) => {
@@ -757,8 +1287,18 @@ const loadDocumentLibrary = async (token) => {
         }
 
         const documents = data.data || [];
+        const initialFilters = new URLSearchParams(window.location.search);
 
         populateLibraryTypeFilter(documents);
+        if (initialFilters.get('search')) {
+            document.getElementById('documentSearch').value = initialFilters.get('search');
+        }
+        if (initialFilters.get('type')) {
+            document.getElementById('documentTypeFilter').value = initialFilters.get('type');
+        }
+        if (initialFilters.get('status')) {
+            document.getElementById('documentStatusFilter').value = initialFilters.get('status');
+        }
         renderDocumentLibrary(documents);
         document.getElementById('documentLoading').classList.add('hidden');
         document.getElementById('documentLibraryContent').classList.remove('hidden');
@@ -1819,7 +2359,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (page === 'user-dashboard') {
-        initializeDashboardPlaceholder(page);
+        initializeUserDashboard();
     }
 
     if (page === 'admin-dashboard') {
@@ -1828,6 +2368,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (page === 'admin-users') {
         initializeAdminUsers();
+    }
+
+    if (page === 'admin-documents') {
+        initializeAdminDocuments();
+    }
+
+    if (page === 'admin-rubrics') {
+        initializeAdminRubrics();
     }
 
     if (page === 'document-upload') {
