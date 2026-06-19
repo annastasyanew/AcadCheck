@@ -31,4 +31,9 @@ class DashboardPageController extends Controller
     {
         return view('admin.rubrics.index');
     }
+
+    public function adminJournals(): View
+    {
+        return view('admin.journals.index');
+    }
 }

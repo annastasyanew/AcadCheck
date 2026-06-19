@@ -28,3 +28,4 @@ Route::get('/admin/dashboard', [DashboardPageController::class, 'admin'])->name(
 Route::get('/admin/users', [DashboardPageController::class, 'adminUsers'])->name('admin.users.page');
 Route::get('/admin/documents', [DashboardPageController::class, 'adminDocuments'])->name('admin.documents.page');
 Route::get('/admin/rubrics', [DashboardPageController::class, 'adminRubrics'])->name('admin.rubrics.page');
+Route::get('/admin/journals', [DashboardPageController::class, 'adminJournals'])->name('admin.journals.page');

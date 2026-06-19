@@ -139,6 +139,42 @@
                 </div>
             </section>
 
+            <section id="journalRecommendationSection" class="detail-card journal-recommendation-section hidden">
+                <div class="section-heading section-heading-row">
+                    <div>
+                        <p class="eyebrow">AI journal matchmaking</p>
+                        <h2>Rekomendasi Jurnal</h2>
+                        <p>Sistem mencocokkan artikel dengan database jurnal aktif berdasarkan topik, scope, subject area, dan kesiapan submit.</p>
+                    </div>
+
+                    <button type="button" id="generateJournalButton" class="primary-button">
+                        <span class="button-label">Cari Rekomendasi Jurnal</span>
+                        <span class="button-loader hidden">Memproses...</span>
+                    </button>
+                </div>
+
+                <div id="journalRecommendationLoading" class="library-state hidden">
+                    <span class="loading-dot"></span>
+                    <div>
+                        <strong>Sedang membuat rekomendasi jurnal</strong>
+                        <p>AI sedang mencocokkan artikel dengan jurnal aktif yang tersedia.</p>
+                    </div>
+                </div>
+
+                <div id="journalRecommendationError" class="form-alert hidden" role="alert"></div>
+
+                <div id="journalRecommendationEmpty" class="inline-empty">
+                    <strong>Belum ada rekomendasi jurnal.</strong>
+                    <p>Klik tombol Cari Rekomendasi Jurnal untuk membuat rekomendasi dari dataset jurnal aktif.</p>
+                </div>
+
+                <div id="journalRecommendationList" class="journal-recommendation-list hidden"></div>
+
+                <p class="journal-recommendation-note">
+                    Rekomendasi jurnal bersifat bantuan awal. Tetap verifikasi status jurnal, template, biaya publikasi, dan ketentuan submit melalui website resmi jurnal.
+                </p>
+            </section>
+
             <section class="detail-card version-card">
                 <div class="section-heading">
                     <p class="eyebrow">Version history</p>

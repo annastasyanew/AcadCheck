@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AdminDocumentController;
+use App\Http\Controllers\Api\Admin\JournalController;
 use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AnalysisController;
 use App\Http\Controllers\Api\AuthController;
@@ -9,6 +10,7 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DocumentController;
 use App\Http\Controllers\Api\DocumentTypeController;
 use App\Http\Controllers\Api\DocumentVersionController;
+use App\Http\Controllers\Api\JournalRecommendationController;
 use App\Http\Controllers\Api\ResponseLetterController;
 use App\Http\Controllers\Api\ReviewerCommentController;
 use App\Http\Controllers\Api\ReviewerResponseController;
@@ -45,6 +47,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/documents/{document}', [DocumentController::class, 'show']);
     Route::post('/documents/{document}/analyze', [AnalysisController::class, 'analyze']);
     Route::get('/documents/{document}/analysis', [AnalysisController::class, 'latest']);
+    Route::get('/documents/{document}/journal-recommendations', [JournalRecommendationController::class, 'index']);
+    Route::post('/documents/{document}/journal-recommendations', [JournalRecommendationController::class, 'generate']);
     Route::get('/documents/{document}/versions', [DocumentVersionController::class, 'index']);
     Route::post('/documents/{document}/versions', [DocumentVersionController::class, 'store']);
     Route::get('/documents/{document}/comparison', [ComparisonController::class, 'compare']);
@@ -65,6 +69,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/users', [AdminUserController::class, 'index']);
         Route::put('/users/{user}/status', [AdminUserController::class, 'updateStatus']);
         Route::get('/documents', [AdminDocumentController::class, 'index']);
+        Route::get('/journals/stats', [JournalController::class, 'stats']);
+        Route::get('/journals', [JournalController::class, 'index']);
+        Route::post('/journals/import', [JournalController::class, 'import']);
+        Route::put('/journals/{journal}', [JournalController::class, 'update']);
+        Route::delete('/journals/{journal}', [JournalController::class, 'destroy']);
         Route::put('/rubrics/{rubric}', [RubricController::class, 'update']);
     });
 });

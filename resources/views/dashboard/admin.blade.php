@@ -113,6 +113,12 @@
                         <p>Kelola bobot dan deskripsi aspek penilaian.</p>
                         <small>Tersedia</small>
                     </a>
+                    <a href="/admin/journals">
+                        <span>04</span>
+                        <strong>Journal Database</strong>
+                        <p>Import dan kelola dataset jurnal SINTA untuk rekomendasi.</p>
+                        <small>Tersedia</small>
+                    </a>
                 </div>
             </section>
 

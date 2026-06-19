@@ -59,4 +59,9 @@ class Document extends Model
     {
         return $this->hasMany(ReviewerComment::class);
     }
+
+    public function journalRecommendations(): HasMany
+    {
+        return $this->hasMany(JournalRecommendation::class);
+    }
 }

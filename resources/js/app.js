@@ -797,6 +797,563 @@ const initializeAdminDocuments = () => {
     loadAdminDocuments(session.token);
 };
 
+let adminJournalsPage = 1;
+let adminJournalsSearchTimer;
+let adminJournals = [];
+const minimumJournalEligibilityScore = 70;
+
+const hasJournalValue = (value) => {
+    const normalizedValue = `${value ?? ''}`.trim().toLocaleLowerCase('id');
+
+    return normalizedValue !== ''
+        && !['nan', 'null', 'undefined', '-', '#'].includes(normalizedValue);
+};
+
+const isJournalAiReady = (journal) => {
+    const hasEligibleScore = Number(journal.eligibility_score ?? 0) >= minimumJournalEligibilityScore;
+    const isActive = journal.is_active === true;
+    const isVerified = journal.verification_status === 'verified';
+
+    return hasEligibleScore && isActive && isVerified;
+};
+
+const getJournalMissingFields = (journal) => {
+    const missing = [];
+
+    if (!hasJournalValue(journal.name)) missing.push('Nama jurnal');
+    if (!hasJournalValue(journal.sinta_level)) missing.push('SINTA level');
+    if (!hasJournalValue(journal.subject_area)) missing.push('Subject area');
+    if (!getSafeExternalUrl(journal.website_url)) missing.push('Website URL');
+
+    if (!hasJournalValue(journal.focus_scope) && !hasJournalValue(journal.keywords)) {
+        missing.push('Focus scope atau keywords');
+    }
+
+    if (journal.is_active !== true) missing.push('Status aktif');
+    if (journal.verification_status !== 'verified') missing.push('Verification status');
+    if (Number(journal.eligibility_score ?? 0) < minimumJournalEligibilityScore) {
+        missing.push(`Eligibility score minimal ${minimumJournalEligibilityScore}`);
+    }
+
+    return missing;
+};
+
+const createJournalAiReadyBadge = (journal) => createTextElement(
+    'span',
+    isJournalAiReady(journal)
+        ? 'admin-user-status admin-user-status-active'
+        : 'admin-user-status admin-user-status-inactive',
+    isJournalAiReady(journal) ? 'AI Ready' : 'Belum Lengkap',
+);
+
+const createJournalEligibilityBadge = (journal) => createTextElement(
+    'span',
+    Number(journal.eligibility_score ?? 0) >= minimumJournalEligibilityScore
+        ? 'admin-user-status admin-user-status-active'
+        : 'admin-user-status admin-user-status-inactive',
+    `Eligibility ${journal.eligibility_score ?? 0}/100`,
+);
+
+const getSafeExternalUrl = (value) => {
+    if (!value) return null;
+
+    const normalizedValue = `${value}`.trim();
+
+    if (!normalizedValue || ['nan', 'null', 'undefined', '-', '#'].includes(normalizedValue.toLocaleLowerCase('id'))) {
+        return null;
+    }
+
+    if (!/^https?:\/\//i.test(normalizedValue)) {
+        return null;
+    }
+
+    try {
+        const url = new URL(normalizedValue);
+
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
+    } catch {
+        return null;
+    }
+};
+
+const setAdminJournalStatValue = (id, value) => {
+    const element = document.getElementById(id);
+
+    if (element) element.textContent = value ?? 0;
+};
+
+const renderAdminJournalSintaStats = (items = []) => {
+    const container = document.getElementById('adminJournalSintaStats');
+
+    if (!container) return;
+
+    const totals = new Map(items.map((item) => [item.sinta_level || 'Belum diisi', item.total ?? 0]));
+    const orderedLevels = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
+    const extraLevels = items
+        .map((item) => item.sinta_level || 'Belum diisi')
+        .filter((level) => !orderedLevels.includes(level));
+    const levels = [...orderedLevels, ...new Set(extraLevels)];
+
+    container.replaceChildren(...levels.map((level) => {
+        const item = document.createElement('article');
+        item.className = 'admin-journal-sinta-item';
+        item.append(
+            createTextElement('span', '', level),
+            createTextElement('strong', '', totals.get(level) ?? 0),
+        );
+
+        return item;
+    }));
+};
+
+const loadAdminJournalStats = async (token) => {
+    try {
+        const response = await fetch('/api/admin/journals/stats', {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (response.status === 403) {
+            window.location.href = '/dashboard';
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(getErrorMessage(data, 'Statistik jurnal tidak dapat dimuat.'));
+        }
+
+        const stats = data.data || {};
+        setAdminJournalStatValue('adminJournalStatTotal', stats.total);
+        setAdminJournalStatValue('adminJournalStatActive', stats.active);
+        setAdminJournalStatValue('adminJournalStatAiReady', stats.ai_ready);
+        setAdminJournalStatValue('adminJournalStatPending', stats.pending_review);
+        setAdminJournalStatValue('adminJournalStatVerified', stats.verified);
+        renderAdminJournalSintaStats(stats.by_sinta || []);
+    } catch (error) {
+        showAlert(error.message || 'Statistik jurnal tidak dapat dimuat.', 'adminJournalsAlert');
+    }
+};
+
+const createAdminJournalRow = (journal, token) => {
+    const row = document.createElement('tr');
+    const journalCell = document.createElement('td');
+    const sintaCell = document.createElement('td');
+    const websiteCell = document.createElement('td');
+    const statusCell = document.createElement('td');
+    const actionCell = document.createElement('td');
+    const issnText = `E-ISSN: ${journal.e_issn || '-'} | P-ISSN: ${journal.p_issn || '-'}`;
+    const safeWebsiteUrl = getSafeExternalUrl(journal.website_url);
+    const actionButton = createTextElement(
+        'button',
+        journal.is_active ? 'admin-user-action admin-user-deactivate' : 'admin-user-action admin-user-activate',
+        journal.is_active ? 'Nonaktifkan' : 'Aktifkan',
+    );
+    const editButton = createTextElement('button', 'admin-user-action admin-journal-edit-action', 'Edit');
+    const detailButton = createTextElement('button', 'admin-user-action admin-journal-detail-action', 'Detail');
+
+    journalCell.append(
+        createTextElement('strong', 'document-title', journal.name || '-'),
+        createTextElement('span', 'document-topic', journal.publisher || 'Publisher belum tersedia'),
+        createTextElement('span', 'document-topic', issnText),
+    );
+    sintaCell.appendChild(createTextElement('span', 'status-badge', journal.sinta_level || '-'));
+
+    if (safeWebsiteUrl) {
+        const link = createTextElement('a', 'detail-link admin-journal-link', 'Buka');
+        link.href = safeWebsiteUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        websiteCell.appendChild(link);
+    } else {
+        websiteCell.textContent = '-';
+    }
+
+    statusCell.className = 'admin-journal-status-cell';
+    statusCell.append(
+        createTextElement(
+            'span',
+            `admin-user-status admin-user-status-${journal.is_active ? 'active' : 'inactive'}`,
+            journal.is_active ? 'Aktif' : 'Nonaktif',
+        ),
+        createJournalAiReadyBadge(journal),
+        createJournalEligibilityBadge(journal),
+        createTextElement('span', 'document-topic', journal.verification_status || '-'),
+    );
+    editButton.type = 'button';
+    editButton.addEventListener('click', () => openAdminJournalEditModal(journal, token));
+    detailButton.type = 'button';
+    detailButton.addEventListener('click', () => showAdminJournalDetail(journal));
+    actionButton.type = 'button';
+    actionButton.addEventListener('click', () => updateAdminJournalStatus(journal, !journal.is_active, token));
+    actionCell.className = 'admin-journal-action-cell';
+    actionCell.append(editButton, detailButton, actionButton);
+    row.append(
+        journalCell,
+        sintaCell,
+        createTextElement('td', '', journal.subject_area || '-'),
+        websiteCell,
+        statusCell,
+        actionCell,
+    );
+
+    return row;
+};
+
+const showAdminJournalDetail = (journal) => {
+    if (!journal) {
+        showAlert('Data jurnal tidak ditemukan.', 'adminJournalsAlert');
+        return;
+    }
+
+    const missingFields = getJournalMissingFields(journal);
+
+    window.alert(
+        `Nama: ${journal.name || '-'}\n\n`
+        + `Publisher: ${journal.publisher || '-'}\n\n`
+        + `SINTA: ${journal.sinta_level || '-'}\n\n`
+        + `Subject: ${journal.subject_area || '-'}\n\n`
+        + `Keywords: ${journal.keywords || '-'}\n\n`
+        + `Focus Scope: ${journal.focus_scope || '-'}\n\n`
+        + `Website: ${journal.website_url || '-'}\n\n`
+        + `Eligibility Score: ${journal.eligibility_score ?? 0}/100\n\n`
+        + `Status AI: ${isJournalAiReady(journal) ? 'AI Ready' : 'Belum Lengkap'}\n\n`
+        + `Data yang kurang:\n${missingFields.length ? `- ${missingFields.join('\n- ')}` : '- Tidak ada'}`,
+    );
+};
+
+const renderAdminJournals = (pagination, token) => {
+    const journals = pagination.data || [];
+    const body = document.getElementById('adminJournalTableBody');
+    adminJournals = journals;
+
+    document.getElementById('adminJournalVisibleCount').textContent = journals.length;
+    document.getElementById('adminJournalTotalCount').textContent = pagination.total ?? 0;
+    document.getElementById('adminJournalCurrentPage').textContent = pagination.current_page ?? 1;
+    document.getElementById('adminJournalLastPage').textContent = pagination.last_page ?? 1;
+    document.getElementById('adminJournalsPageLabel').textContent = `Halaman ${pagination.current_page ?? 1}`;
+    document.getElementById('adminJournalsPreviousPage').disabled = !pagination.prev_page_url;
+    document.getElementById('adminJournalsNextPage').disabled = !pagination.next_page_url;
+
+    if (journals.length === 0) {
+        const row = document.createElement('tr');
+        const cell = createTextElement('td', 'comparison-no-data', 'Belum ada data jurnal.');
+        cell.colSpan = 6;
+        row.appendChild(cell);
+        body.replaceChildren(row);
+        return;
+    }
+
+    body.replaceChildren(...journals.map((journal) => createAdminJournalRow(journal, token)));
+};
+
+const getAdminJournalModal = () => document.getElementById('adminJournalEditModal');
+
+const closeAdminJournalEditModal = () => {
+    getAdminJournalModal()?.classList.add('hidden');
+    hideAlert('adminJournalEditAlert');
+};
+
+const setAdminJournalFieldValue = (id, value) => {
+    const field = document.getElementById(id);
+
+    if (field) field.value = value ?? '';
+};
+
+const openAdminJournalEditModal = (journal, token) => {
+    const modal = getAdminJournalModal();
+    const form = document.getElementById('adminJournalEditForm');
+
+    if (!modal || !form) return;
+
+    form.dataset.token = token;
+    setAdminJournalFieldValue('editJournalId', journal.id);
+    setAdminJournalFieldValue('editJournalName', journal.name);
+    setAdminJournalFieldValue('editJournalPublisher', journal.publisher);
+    setAdminJournalFieldValue('editJournalSintaLevel', journal.sinta_level);
+    setAdminJournalFieldValue('editJournalSubjectArea', journal.subject_area);
+    setAdminJournalFieldValue('editJournalFocusScope', journal.focus_scope);
+    setAdminJournalFieldValue('editJournalKeywords', journal.keywords);
+    setAdminJournalFieldValue('editJournalWebsiteUrl', getSafeExternalUrl(journal.website_url) ? journal.website_url : '');
+    setAdminJournalFieldValue('editJournalTemplateUrl', getSafeExternalUrl(journal.template_url) ? journal.template_url : '');
+    setAdminJournalFieldValue(
+        'editJournalAuthorGuidelineUrl',
+        getSafeExternalUrl(journal.author_guideline_url) ? journal.author_guideline_url : '',
+    );
+    setAdminJournalFieldValue('editJournalIsActive', journal.is_active ? 'true' : 'false');
+    setAdminJournalFieldValue('editJournalVerificationStatus', journal.verification_status || 'pending_review');
+    hideAlert('adminJournalEditAlert');
+    modal.classList.remove('hidden');
+};
+
+const nullableString = (value) => {
+    const normalizedValue = `${value ?? ''}`.trim();
+
+    return normalizedValue === '' ? null : normalizedValue;
+};
+
+const submitAdminJournalEdit = async (form) => {
+    const token = form.dataset.token;
+    const journalId = document.getElementById('editJournalId')?.value;
+
+    hideAlert('adminJournalEditAlert');
+
+    if (!token || !journalId) {
+        showAlert('Data jurnal tidak ditemukan.', 'adminJournalEditAlert');
+        return;
+    }
+
+    if (!form.reportValidity()) return;
+
+    setSubmitting(form, true);
+
+    try {
+        const payload = {
+            name: nullableString(document.getElementById('editJournalName').value),
+            publisher: nullableString(document.getElementById('editJournalPublisher').value),
+            sinta_level: nullableString(document.getElementById('editJournalSintaLevel').value),
+            subject_area: nullableString(document.getElementById('editJournalSubjectArea').value),
+            focus_scope: nullableString(document.getElementById('editJournalFocusScope').value),
+            keywords: nullableString(document.getElementById('editJournalKeywords').value),
+            website_url: nullableString(document.getElementById('editJournalWebsiteUrl').value),
+            template_url: nullableString(document.getElementById('editJournalTemplateUrl').value),
+            author_guideline_url: nullableString(document.getElementById('editJournalAuthorGuidelineUrl').value),
+            is_active: document.getElementById('editJournalIsActive').value === 'true',
+            verification_status: document.getElementById('editJournalVerificationStatus').value,
+        };
+        const response = await fetch(`/api/admin/journals/${journalId}`, {
+            method: 'PUT',
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showAlert(getErrorMessage(data, 'Data jurnal gagal diperbarui.'), 'adminJournalEditAlert');
+            return;
+        }
+
+        closeAdminJournalEditModal();
+        await loadAdminJournals(token, adminJournalsPage);
+        await loadAdminJournalStats(token);
+        showAlert(data.message || 'Data jurnal berhasil diperbarui.', 'adminJournalsAlert', 'success');
+    } catch {
+        showAlert('Data jurnal tidak dapat diperbarui. Silakan coba kembali.', 'adminJournalEditAlert');
+    } finally {
+        setSubmitting(form, false);
+    }
+};
+
+const loadAdminJournals = async (token, page = adminJournalsPage) => {
+    const query = new URLSearchParams({ page });
+    const search = document.getElementById('adminJournalSearch').value.trim();
+    const sintaLevel = document.getElementById('adminJournalSintaFilter').value;
+    const isActive = document.getElementById('adminJournalActiveFilter').value;
+    const verificationStatus = document.getElementById('adminJournalVerificationFilter').value;
+
+    if (search) query.set('search', search);
+    if (sintaLevel) query.set('sinta_level', sintaLevel);
+    if (isActive) query.set('is_active', isActive);
+    if (verificationStatus) query.set('verification_status', verificationStatus);
+
+    hideAlert('adminJournalsAlert');
+
+    try {
+        const response = await fetch(`/api/admin/journals?${query}`, {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (response.status === 403) {
+            window.location.href = '/dashboard';
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(getErrorMessage(data, 'Data jurnal tidak dapat dimuat.'));
+        }
+
+        adminJournalsPage = data.data?.current_page || 1;
+        renderAdminJournals(data.data || {}, token);
+        document.getElementById('adminJournalsLoading').classList.add('hidden');
+        document.getElementById('adminJournalsContent').classList.remove('hidden');
+    } catch (error) {
+        document.getElementById('adminJournalsLoading').classList.add('hidden');
+        showAlert(error.message || 'Data jurnal tidak dapat dimuat.', 'adminJournalsAlert');
+    }
+};
+
+const importAdminJournals = async (form, token) => {
+    hideAlert('adminJournalsAlert');
+
+    if (!form.reportValidity()) return;
+
+    setSubmitting(form, true);
+
+    try {
+        const response = await fetch('/api/admin/journals/import', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+            body: new FormData(form),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showAlert(getErrorMessage(data, 'Import CSV jurnal gagal.'), 'adminJournalsAlert');
+            return;
+        }
+
+        form.reset();
+        document.getElementById('adminJournalFileField')?.classList.remove('has-file');
+        document.getElementById('adminJournalFileName').textContent = 'Pilih file CSV jurnal';
+        adminJournalsPage = 1;
+        await loadAdminJournals(token, adminJournalsPage);
+        await loadAdminJournalStats(token);
+        showAlert(
+            `${data.message || 'Import CSV jurnal selesai.'} Imported: ${data.summary?.imported ?? 0}, Updated: ${data.summary?.updated ?? 0}, Failed: ${data.summary?.failed ?? 0}.`,
+            'adminJournalsAlert',
+            'success',
+        );
+    } catch {
+        showAlert('Import CSV jurnal tidak dapat diproses. Silakan coba kembali.', 'adminJournalsAlert');
+    } finally {
+        setSubmitting(form, false);
+    }
+};
+
+const updateAdminJournalStatus = async (journal, isActive, token) => {
+    hideAlert('adminJournalsAlert');
+
+    if (isActive === true) {
+        const missingFields = getJournalMissingFields({
+            ...journal,
+            is_active: true,
+            verification_status: 'verified',
+        });
+
+        if (missingFields.length > 0) {
+            const confirmActivate = window.confirm(
+                `Data jurnal belum lengkap:\n\n- ${missingFields.join('\n- ')}\n\nTetap aktifkan jurnal ini?`,
+            );
+
+            if (!confirmActivate) return;
+        }
+    }
+
+    try {
+        const response = await fetch(`/api/admin/journals/${journal.id}`, {
+            method: 'PUT',
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                is_active: isActive,
+                verification_status: isActive ? 'verified' : 'pending_review',
+            }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showAlert(getErrorMessage(data, 'Status jurnal gagal diperbarui.'), 'adminJournalsAlert');
+            return;
+        }
+
+        await loadAdminJournals(token, adminJournalsPage);
+        await loadAdminJournalStats(token);
+        showAlert(data.message || 'Status jurnal berhasil diperbarui.', 'adminJournalsAlert', 'success');
+    } catch {
+        showAlert('Status jurnal tidak dapat diperbarui. Silakan coba kembali.', 'adminJournalsAlert');
+    }
+};
+
+const initializeAdminJournals = () => {
+    const session = requireUserSession(true);
+
+    if (!session) return;
+
+    if (session.user.role !== 'admin') {
+        window.location.href = '/dashboard';
+        return;
+    }
+
+    const reloadFromFirstPage = () => {
+        adminJournalsPage = 1;
+        loadAdminJournals(session.token, adminJournalsPage);
+    };
+    const importForm = document.getElementById('adminJournalImportForm');
+    const editForm = document.getElementById('adminJournalEditForm');
+    const fileInput = document.getElementById('adminJournalCsvFile');
+
+    document.getElementById('adminJournalsIdentity').textContent = session.user.name || 'Admin';
+    document.querySelector('[data-logout]')?.addEventListener('click', logout);
+    document.getElementById('adminJournalSearch')?.addEventListener('input', () => {
+        window.clearTimeout(adminJournalsSearchTimer);
+        adminJournalsSearchTimer = window.setTimeout(reloadFromFirstPage, 350);
+    });
+    document.getElementById('adminJournalSintaFilter')?.addEventListener('change', reloadFromFirstPage);
+    document.getElementById('adminJournalActiveFilter')?.addEventListener('change', reloadFromFirstPage);
+    document.getElementById('adminJournalVerificationFilter')?.addEventListener('change', reloadFromFirstPage);
+    document.getElementById('resetAdminJournalFilters')?.addEventListener('click', () => {
+        document.getElementById('adminJournalSearch').value = '';
+        document.getElementById('adminJournalSintaFilter').value = '';
+        document.getElementById('adminJournalActiveFilter').value = '';
+        document.getElementById('adminJournalVerificationFilter').value = '';
+        reloadFromFirstPage();
+    });
+    document.getElementById('adminJournalsPreviousPage')?.addEventListener('click', () => {
+        if (adminJournalsPage > 1) loadAdminJournals(session.token, adminJournalsPage - 1);
+    });
+    document.getElementById('adminJournalsNextPage')?.addEventListener('click', () => {
+        loadAdminJournals(session.token, adminJournalsPage + 1);
+    });
+    fileInput?.addEventListener('change', () => {
+        const fileName = fileInput.files?.[0]?.name || 'Pilih file CSV jurnal';
+        document.getElementById('adminJournalFileName').textContent = fileName;
+        document.getElementById('adminJournalFileField')?.classList.toggle('has-file', Boolean(fileInput.files?.length));
+    });
+    importForm?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        importAdminJournals(importForm, session.token);
+    });
+    editForm?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitAdminJournalEdit(editForm);
+    });
+    document.getElementById('closeAdminJournalEditModal')?.addEventListener('click', closeAdminJournalEditModal);
+    document.getElementById('cancelAdminJournalEdit')?.addEventListener('click', closeAdminJournalEditModal);
+    getAdminJournalModal()?.addEventListener('click', (event) => {
+        if (event.target === event.currentTarget) closeAdminJournalEditModal();
+    });
+    loadAdminJournalStats(session.token);
+    loadAdminJournals(session.token);
+};
+
 let adminRubrics = [];
 
 const rubricTypeLabels = {
@@ -1402,6 +1959,202 @@ const renderDocumentDetail = (documentData) => {
     );
 };
 
+const isArticleDocument = (documentData) => {
+    const typeName = (documentData?.document_type?.name || '').toLocaleLowerCase('id');
+    const typeLabel = (documentData?.document_type?.label || '').toLocaleLowerCase('id');
+
+    return typeName.includes('artikel')
+        || typeName.includes('article')
+        || typeLabel.includes('artikel')
+        || typeLabel.includes('article');
+};
+
+const showJournalRecommendationError = (message) => {
+    const box = document.getElementById('journalRecommendationError');
+
+    if (!box) return;
+
+    box.textContent = message;
+    box.dataset.type = 'error';
+    box.classList.remove('hidden');
+};
+
+const hideJournalRecommendationError = () => {
+    const box = document.getElementById('journalRecommendationError');
+
+    if (!box) return;
+
+    box.textContent = '';
+    box.classList.add('hidden');
+};
+
+const setJournalRecommendationLoading = (isLoading) => {
+    const button = document.getElementById('generateJournalButton');
+    const loading = document.getElementById('journalRecommendationLoading');
+
+    if (button) {
+        button.disabled = isLoading;
+        button.querySelector('.button-label')?.classList.toggle('hidden', isLoading);
+        button.querySelector('.button-loader')?.classList.toggle('hidden', !isLoading);
+    }
+
+    loading?.classList.toggle('hidden', !isLoading);
+};
+
+const createJournalMetaBadge = (text, className = '') => createTextElement(
+    'span',
+    `journal-recommendation-badge ${className}`.trim(),
+    text || '-',
+);
+
+const createJournalActionLink = (url, label, className) => {
+    const safeUrl = getSafeExternalUrl(url);
+
+    if (!safeUrl) return null;
+
+    const link = createTextElement('a', className, label);
+    link.href = safeUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+
+    return link;
+};
+
+const createJournalInsight = (title, text, className) => {
+    const item = document.createElement('div');
+    item.className = `journal-recommendation-insight ${className}`;
+    item.append(
+        createTextElement('strong', '', title),
+        createTextElement('p', '', text || '-'),
+    );
+
+    return item;
+};
+
+const createJournalRecommendationCard = (item, index) => {
+    const journal = item.journal || {};
+    const card = document.createElement('article');
+    const header = document.createElement('div');
+    const identity = document.createElement('div');
+    const rank = createTextElement('span', 'journal-recommendation-rank', index + 1);
+    const titleWrap = document.createElement('div');
+    const badges = document.createElement('div');
+    const actions = document.createElement('div');
+    const insights = document.createElement('div');
+    const websiteLink = createJournalActionLink(journal.website_url, 'Website', 'detail-link journal-recommendation-link');
+    const templateLink = createJournalActionLink(journal.template_url, 'Template', 'secondary-button button-link journal-recommendation-link');
+
+    card.className = 'journal-recommendation-card';
+    header.className = 'journal-recommendation-header';
+    identity.className = 'journal-recommendation-identity';
+    badges.className = 'journal-recommendation-badges';
+    actions.className = 'journal-recommendation-actions';
+    insights.className = 'journal-recommendation-insights';
+
+    titleWrap.append(
+        createTextElement('h3', '', journal.name || '-'),
+        createTextElement('p', '', journal.publisher || 'Publisher belum tersedia'),
+    );
+    identity.append(rank, titleWrap);
+    badges.append(
+        createJournalMetaBadge(journal.sinta_level || '-'),
+        createJournalMetaBadge(journal.subject_area || 'Subject belum tersedia'),
+        createJournalMetaBadge(`Fit Score: ${item.fit_score ?? 0}/100`, 'journal-recommendation-score'),
+    );
+    actions.append(...[websiteLink, templateLink].filter(Boolean));
+    header.append(identity, actions);
+    insights.append(
+        createJournalInsight('Alasan Cocok', item.fit_reason, 'journal-recommendation-fit'),
+        createJournalInsight('Risiko Submit', item.submission_risk, 'journal-recommendation-risk'),
+        createJournalInsight('Saran Perbaikan', item.suggested_improvement, 'journal-recommendation-improvement'),
+    );
+    card.append(header, badges, insights);
+
+    return card;
+};
+
+const renderJournalRecommendations = (recommendations) => {
+    const empty = document.getElementById('journalRecommendationEmpty');
+    const list = document.getElementById('journalRecommendationList');
+    const items = recommendations || [];
+
+    if (!empty || !list) return;
+
+    if (items.length === 0) {
+        empty.classList.remove('hidden');
+        list.classList.add('hidden');
+        list.replaceChildren();
+        return;
+    }
+
+    empty.classList.add('hidden');
+    list.classList.remove('hidden');
+    list.replaceChildren(...items.map(createJournalRecommendationCard));
+};
+
+const loadJournalRecommendations = async (documentId, token) => {
+    hideJournalRecommendationError();
+
+    try {
+        const response = await fetch(`/api/documents/${documentId}/journal-recommendations`, {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (!response.ok) {
+            showJournalRecommendationError(data.message || 'Rekomendasi jurnal tidak dapat dimuat.');
+            return;
+        }
+
+        renderJournalRecommendations(data.data || []);
+    } catch {
+        showJournalRecommendationError('Rekomendasi jurnal tidak dapat dimuat. Silakan coba kembali.');
+    }
+};
+
+const generateJournalRecommendations = async (documentId, token) => {
+    hideJournalRecommendationError();
+    setJournalRecommendationLoading(true);
+
+    try {
+        const response = await fetch(`/api/documents/${documentId}/journal-recommendations`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            storage.clearSession();
+            window.location.href = '/login';
+            return;
+        }
+
+        if (!response.ok) {
+            showJournalRecommendationError(data.message || 'Rekomendasi jurnal gagal dibuat.');
+            return;
+        }
+
+        renderJournalRecommendations(data.data || []);
+        showAlert('Rekomendasi jurnal berhasil dibuat.', 'detailAlert', 'success');
+    } catch {
+        showJournalRecommendationError('Rekomendasi jurnal tidak dapat dibuat. Silakan coba kembali.');
+    } finally {
+        setJournalRecommendationLoading(false);
+    }
+};
+
 const renderLatestAnalysis = (analysis) => {
     document.getElementById('analysisEmptyState').classList.add('hidden');
     document.getElementById('analysisDetailContent').classList.remove('hidden');
@@ -1508,6 +2261,12 @@ const loadDocumentDetail = async (documentId, token) => {
         }
 
         renderDocumentDetail(data.data);
+        if (isArticleDocument(data.data)) {
+            document.getElementById('journalRecommendationSection')?.classList.remove('hidden');
+            await loadJournalRecommendations(documentId, token);
+        } else {
+            document.getElementById('journalRecommendationSection')?.classList.add('hidden');
+        }
         await loadLatestAnalysis(documentId, token);
         document.getElementById('documentDetailLoading').classList.add('hidden');
         document.getElementById('documentDetailContent').classList.remove('hidden');
@@ -1527,6 +2286,9 @@ const initializeDocumentDetail = () => {
     document.querySelector('[data-logout]')?.addEventListener('click', logout);
     document.getElementById('analyzeDocumentButton')?.addEventListener('click', () => {
         analyzeDocument(documentId, session.token);
+    });
+    document.getElementById('generateJournalButton')?.addEventListener('click', () => {
+        generateJournalRecommendations(documentId, session.token);
     });
     loadDocumentDetail(documentId, session.token);
 };
@@ -2376,6 +3138,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (page === 'admin-rubrics') {
         initializeAdminRubrics();
+    }
+
+    if (page === 'admin-journals') {
+        initializeAdminJournals();
     }
 
     if (page === 'document-upload') {
